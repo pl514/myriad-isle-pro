@@ -1,0 +1,63 @@
+<!--
+  EyeBlinkControl.xaml —— 参考用（不参与编译）
+
+  说明：本项目用 csc.exe 直接编译、没有 .csproj，也就没有 XAML 编译器（BAML），
+  所以实际生效的是 src\EyeBlinkControl.cs（用同一套 Path 数据在代码里搭布局）。
+  这份 XAML 是等价的标记写法：将来若引入 MSBuild，可直接替换成
+  EyeBlinkControl.xaml + EyeBlinkControl.xaml.cs。
+
+  设计画布 60×40：
+    · 睁眼：两条竖直圆头条，x=15 / x=45，y 4→36，线宽 13（圆头）
+    · 闭眼：两条横向短线，y=20
+  所有 Path 都是单笔画描边（Stroke），纯色、无渐变、无阴影。
+-->
+<UserControl x:Class="IslandShot.EyeBlinkControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             IsHitTestVisible="False" Background="{x:Null}">
+
+    <!-- Viewbox：宿主给多大就等比画多大，胶囊缩放时眼睛同步缩放 -->
+    <Viewbox Stretch="Uniform" StretchDirection="Both" IsHitTestVisible="False">
+        <Grid x:Name="EyesRoot" RenderTransformOrigin="0.5,0.5" Background="{x:Null}">
+            <Grid.RenderTransform>
+                <ScaleTransform x:Name="BlinkScale" ScaleX="1" ScaleY="1"/>
+            </Grid.RenderTransform>
+
+            <!-- 睁眼层 -->
+            <Canvas x:Name="OpenLayer" Width="60" Height="40">
+                <Path x:Name="LeftEye"
+                      Data="M 15,4 L 15,36"
+                      Stroke="#2E5FD6" StrokeThickness="13"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                <Path x:Name="RightEye"
+                      Data="M 45,4 L 45,36"
+                      Stroke="#2E5FD6" StrokeThickness="13"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+            </Canvas>
+
+            <!-- 闭眼层（眨眼中间那一帧 / Closed 表情） -->
+            <Canvas x:Name="ClosedLayer" Width="60" Height="40" Opacity="0">
+                <Path x:Name="LeftLid"
+                      Data="M 9,20 L 21,20"
+                      Stroke="#2E5FD6" StrokeThickness="9"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                <Path x:Name="RightLid"
+                      Data="M 39,20 L 51,20"
+                      Stroke="#2E5FD6" StrokeThickness="9"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+            </Canvas>
+        </Grid>
+    </Viewbox>
+</UserControl>
+
+<!--
+  表情切换（代码里对应 EyeBlinkControl.Expression，数据表在 EyeBlinkControl.cs 的 Expressions）：
+
+  Open    LeftEye="M 15,4 L 15,36"                     RightEye="M 45,4 L 45,36"
+  Happy   LeftEye="M 15,9 C 13,16 13,24 15,31"         RightEye="M 45,9 C 47,16 47,24 45,31"
+  Sleepy  LeftEye="M 15,13 L 15,30"                    RightEye="M 45,13 L 45,30"
+  Closed  LeftEye="M 15,18 L 15,22"                    RightEye="M 45,18 L 45,22"
+
+  配置项：data\settings.txt 里的 EyesEnabled=1/0，
+  绑定到 EyeBlinkControl.EyesEnabled（= Blinking，关掉后停表并保持当前表情）。
+-->

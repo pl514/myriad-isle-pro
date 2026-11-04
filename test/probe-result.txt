@@ -1,0 +1,15 @@
+[12:38:04.468] Drop | effect=Copy
+Formats: Shell IDList Array, DragImageBits, DragContext, DragSourceHelperFlags, InShellDragLoop, FileDrop, FileNameW, FileName, FileContents, FileGroupDescriptorW, ZoneIdentifier
+FileDrop -> C:\桌面\RSDragonwilds-Win64-Shipping - 快捷方式.lnk | exists=True
+Bitmap -> not offered
+PNG -> not offered
+image/png -> not offered
+
+[13:01:20.095] DragEnter/Over | formats: FileDrop, FileNameW, FileName, DeviceIndependentBitmap, PNG, image/png, Preferred DropEffect
+[13:01:21.271] Drop | effect=Copy
+Formats: FileDrop, FileNameW, FileName, DeviceIndependentBitmap, PNG, image/png, Preferred DropEffect
+FileDrop -> E:\deepseek1\IslandShot\build\data\images\sample.png | exists=True
+Bitmap -> not offered
+PNG -> 1437031 bytes, signature=89 50 4E 47 0D 0A 1A 0A
+image/png -> 1437031 bytes, signature=89 50 4E 47 0D 0A 1A 0A
+

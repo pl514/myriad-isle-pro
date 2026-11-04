@@ -1,0 +1,48 @@
+Capsule image — 第三方来源与许可声明
+=====================================
+
+本项目是独立开发的 Windows 桌面工具，产品名称为 Capsule image，中文快捷方式名为「胶囊图」。
+
+一、参考的产品与交互来源
+------------------------
+PicRope（图绳）
+- 上游仓库（本地 git HEAD 原始提交）：https://github.com/Renly1994/PicRope
+- 参考提交：abc371c（2026-10-27）
+- 版权：Copyright (c) 2026 Alejandro Buján
+- 许可：MIT License，完整文本见 licenses/PicRope-MIT.txt
+
+PicRope 以 Tendedero 为上游进行 Windows 移植：
+- https://github.com/alejandrobujan/tendedero
+- 上游版权：Copyright (c) 2026 Alejandro Buján
+
+参考范围：
+- 胶囊/图绳式图片篮子的产品概念与基础交互；
+- 拖拽导出、区域/窗口/全屏截图、托盘菜单、热键设置、图片编辑器入口、
+  独立查看器、动效节奏等交互思路。
+
+代码关系：
+- 对比上游原始提交后，本项目的 WPF 界面、胶囊窗口、托盘菜单、截图、
+  动效、图片编辑器和 OLE 拖拽等模块为独立实现，没有整文件复制上游源码。
+- 录屏模块的 ffmpeg 调用方式与用户本地修改版 PicRope 的 ScreenRecorder 接近；
+  该文件不在上游原始仓库 HEAD 中，不属于上述上游 MIT 许可覆盖的源码。
+  如果你再分发本项目，请保留本声明，并自行确认该录屏文件的来源。
+- 本项目没有使用 PicRope 的 Filerobot 图片编辑器、WebView2 容器或图标素材。
+
+名称与图标：
+- 本项目使用独立名称 Capsule image 和独立图标，不使用 Tendedero/PicRope 的
+  名称、图标或官方视觉素材，也不表示获得上游作者背书。
+
+二、MIT 许可要求
+----------------
+如果本项目包含或修改了 PicRope/Tendedero 的受版权保护代码，必须保留：
+1. 原版权声明；
+2. 本 MIT 许可全文；
+3. 不得删除或隐藏上述声明。
+
+PicRope 的完整 MIT 文本已放在 licenses/PicRope-MIT.txt。
+
+三、说明
+--------
+本文件用于满足开源许可的署名与许可文本保留要求，不构成法律意见。
+如后续新增了来自其他项目的代码、字体、图标或素材，请在该项目的
+licenses 目录中补充对应许可和版权声明。

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>IslandShot 拖拽接收测试</title>
+<style>
+  html,body{margin:0;height:100%;font-family:"Microsoft YaHei UI",Segoe UI,sans-serif;background:#0f141a;color:#e8eef6}
+  body{padding:24px;box-sizing:border-box}
+  h1{font-size:18px;margin:0 0 10px}
+  p{color:#9fb0c4;font-size:13px;margin:0 0 18px}
+  #zone{margin-top:18px;height:160px;display:flex;align-items:center;justify-content:center;
+        border:2px dashed #3d5a78;border-radius:14px;color:#9fb0c4;font-size:14px;transition:.15s}
+  #zone.hot{border-color:#41c07a;background:rgba(65,192,122,.12);color:#7fe2ad}
+  #zone.ok{border-style:solid;border-color:#41c07a;background:rgba(65,192,122,.18);color:#7fe2ad}
+  #log{margin-top:16px;padding:12px;background:#161d26;border-radius:10px;font:12px Consolas,monospace;
+       white-space:pre-wrap;min-height:90px;color:#a9e2c3}
+  input[type=file]{color:#cfd9e6}
+  #preview img{max-width:280px;max-height:160px;border-radius:8px;margin:6px 8px 0 0;border:1px solid #2c3e52}
+</style>
+</head>
+<body>
+  <h1>IslandShot 原生拖拽接收测试</h1>
+  <p>从 IslandShot 胶囊按住图片拖到本页任意位置（或下方文件框），松手后这里会立即显示接收结果。</p>
+  <input id="file" type="file" multiple accept="image/*">
+  <div id="zone">拖放到这里</div>
+  <div id="preview"></div>
+  <pre id="log"></pre>
+  <script>
+    var log = document.getElementById('log');
+    var zone = document.getElementById('zone');
+    function write(text) { log.textContent += text + '\n'; }
+    function handle(files, source) {
+      if (!files || !files.length) { write(source + '：没有收到文件数据'); return; }
+      zone.classList.add('ok');
+      zone.textContent = '已接收 ' + files.length + ' 个文件 ✔';
+      for (var i = 0; i < files.length; i++) {
+        var f = files[i];
+        write(source + ' 收到文件：' + f.name + ' ｜ ' + (f.type || '(无类型)') + ' ｜ ' + f.size + ' 字节');
+        if (f.type && f.type.indexOf('image/') === 0) {
+          var img = document.createElement('img');
+          img.src = URL.createObjectURL(f);
+          document.getElementById('preview').appendChild(img);
+        }
+      }
+    }
+    ['dragenter','dragover'].forEach(function (t) {
+      document.addEventListener(t, function (e) { e.preventDefault(); zone.classList.add('hot'); });
+    });
+    ['dragleave','drop'].forEach(function (t) {
+      document.addEventListener(t, function (e) { e.preventDefault(); zone.classList.remove('hot'); });
+    });
+    document.addEventListener('drop', function (e) { handle(e.dataTransfer.files, '页面 drop'); });
+    document.getElementById('file').addEventListener('change', function (e) { handle(e.target.files, '文件框 change'); });
+  </script>
+</body>
+</html>
