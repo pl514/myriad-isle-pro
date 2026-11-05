@@ -492,7 +492,7 @@ zhipu|plain:你的key原样贴这里
 
 ---
 
-## 13. 进度：M1 已完成（2026-11-05）
+## 13. 进度：M1 / M2 已完成（2026-11-05）
 
 ### 13.1 落了什么
 
@@ -523,24 +523,47 @@ zhipu|plain:你的key原样贴这里
 [4] 加一条模型并重读  models=3 last=测试模型
 ```
 
-### 13.3 还没做（M2 起）
+### 13.3 M2 已完成（同日）
 
-- `OpenAiCompatBackend` 本体（现在发送**仍走 FakeBackend**，chip 上的模型名只影响显示）；
-- 因此"填了 key 但还不会真的联网"——这是预期的，M1 只做配置。
+新增 `src\OpenAiCompatBackend.cs`（含 `ChatBackends` 工厂）：
 
-### 13.4 给 M2 的接口落点
+| 能力 | 实现 |
+|---|---|
+| 流式 | `HttpCompletionOption.ResponseHeadersRead` + `StreamReader.ReadLineAsync` 逐行解析 `data:` |
+| 首字超时 | 25s（`CancellationTokenSource.CancelAfter`，只包住"等响应头"那一段） |
+| 总时长 | 180s（外层 linked CTS，在读取循环里检查） |
+| 取消 | 用户点停止 → `OperationCanceledException` 直接上抛，前端静默处理、已输出文字保留 |
+| 错误映射 | 401 / 402 / 403 / 404 / 429 + 网络异常，全部翻成中文可操作文案 |
+| `content:null` | `ExtractDelta` 里判"冒号后必须是引号"，不会把 `finish_reason` 当正文 |
+| 线程 | **没有一处 `ConfigureAwait(false)`**，`onDelta` 保证在 UI 线程 |
 
-`IslandWindow.Ai.cs` 里就一处：
+接入点只有一处（`IslandWindow.Ai.cs` 的 `RunAiStream`）：
 
 ```csharp
-readonly IChatBackend aiBackend = new FakeBackend();
+IChatBackend backend = ChatBackends.Resolve(CurrentAiModel());
+await backend.SendAsync(prompt, delegate(string delta) { AppendDelta(message, delta); }, token);
 ```
 
-改成非 readonly，并在 `SubmitAiInput`/`RetryAiMessage` 发之前解析：
+配置不全时 `Resolve` 抛"人话"异常，前端统一显示成错误气泡 + 重试按钮。
 
-```csharp
-AiModelConfig model = CurrentAiModel();          // 已经有这个方法
-aiBackend = ChatBackends.Resolve(model);          // M2 新建的工厂
-```
+**验收记录（全部实测）**：
 
-`CurrentAiModel()` 和 `AiConfigStore.GetKey(model.KeyRef)` 都已经就位，M2 直接用。
+| 用例 | 结果 |
+|---|---|
+| `mock -Mode ok` | ✅ 逐字流式出「你好，这是 mock 后端的流式回答。」，结尾的 `content:null` 块没有污染文字 |
+| `mock -Mode 401` | ✅ 气泡显示「API Key 无效（401）。检查 data\keys.txt 里那一行。」 |
+| `mock -Mode slow` | ✅ 25 秒后显示「等太久了（25 秒没有响应），已取消」 |
+| 模型要 key 但 `keys.txt` 没有 | ✅ 显示「这个模型需要 API Key。在 data\keys.txt 里加一行：zhipu\|plain:你的key」 |
+| 真实服务商 | ⏳ 等用户的 key |
+
+### 13.4 还没做
+
+- **真实 key 的验收**（用户侧，拿到 key 按 §12 走一遍）；
+- 真实的流中「停止」——代码路径与 mock 一致，但没用真服务商压过；
+- 推理等级（High/Medium/Low）目前只改 chip 文字，还没进请求参数；
+- M4 模型管理打磨、M5 会话落盘、M6 WebBackend。
+
+### 13.5 一个副作用要知道
+
+`FakeBackend` 还留在 `src\ChatBackend.cs` 里，但 `models.txt` 没有指向它的条目，所以**当前没有任何路径会用到它**。
+留着它是当"离线演示/协议对照"用的；嫌它碍眼可以删掉这个类，接口定义在同文件里。不用删。
