@@ -64,6 +64,9 @@ namespace IslandShot
 
         public event EventHandler UserClosed;
 
+        // 真窗口从"隐形"变成可见时触发，主窗口据此收掉形变外壳
+        public event EventHandler Revealed;
+
         // 点 [×] 时交给主窗口去做"飞回胶囊"动画；没设就自己直接关
         public Action<DouyinPlayerWindow> ExitRequested;
 
@@ -78,6 +81,9 @@ namespace IslandShot
         int cursorShown;
         bool cloaked;
         bool roundedApplied;
+        bool contentReady;
+        bool revealPending;
+        DispatcherTimer revealTimer;
 
         [DllImport("dwmapi.dll")]
         static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
@@ -172,6 +178,8 @@ namespace IslandShot
 
             // ---- 内容 ----
             view = new WebView2();
+            // 关键：默认背景是白色，页面还没画出来时会闪一下白。改成和窗口一样的深色。
+            view.DefaultBackgroundColor = System.Drawing.Color.FromArgb(13, 15, 21);
             statusText = new TextBlock
             {
                 FontSize = 12,
@@ -413,13 +421,36 @@ namespace IslandShot
         /// <summary>先以"隐形"方式显示：WebView2 能初始化、能加载，但用户看不见。</summary>
         public void PrepareCloaked()
         {
+            contentReady = false;
+            revealPending = false;
             Show();
             Cloak(true);
         }
 
         public void Reveal()
         {
-            if (cloaked) Cloak(false);
+            if (!cloaked) return;
+            if (contentReady) { UncloakNow(); return; }
+            revealPending = true;
+            if (revealTimer == null)
+            {
+                revealTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2200) };
+                revealTimer.Tick += delegate
+                {
+                    revealTimer.Stop();
+                    revealPending = false;
+                    UncloakNow();
+                };
+            }
+            revealTimer.Stop();
+            revealTimer.Start();
+        }
+
+        void UncloakNow()
+        {
+            if (!cloaked) return;
+            Cloak(false);
+            if (Revealed != null) { try { Revealed(this, EventArgs.Empty); } catch (Exception) { } }
         }
 
         /// <summary>退出后重置位置：下次点球回到"面板展开位置"。</summary>
@@ -503,6 +534,13 @@ namespace IslandShot
                 {
                     if (!args.IsSuccess) ShowStatus("页面加载失败（" + args.WebErrorStatus + "），检查一下网络。");
                     else HideStatus();
+                    contentReady = true;
+                    if (revealPending && cloaked)
+                    {
+                        revealPending = false;
+                        if (revealTimer != null) revealTimer.Stop();
+                        UncloakNow();
+                    }
                     Dispatcher.BeginInvoke(new Action(CleanLayout), DispatcherPriority.Background);
                 };
                 core.Navigate("https://www.douyin.com/");

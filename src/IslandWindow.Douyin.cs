@@ -62,9 +62,24 @@ namespace IslandShot
             SetToolRunning(FindTool("douyin"), true);
 
             DouyinPlayerWindow window = douyinWindow;
-            MorphShellWindow.Play(from, to, 380,
-                delegate { window.Reveal(); },
-                null);
+            MorphShellWindow shell = null;
+            shell = MorphShellWindow.Create(from, to, 380, delegate { window.Reveal(); });
+            window.Revealed += delegate
+            {
+                if (shell != null) shell.Dismiss();
+            };
+
+            // 兜底：页面万一一直不 ready，2.6 秒后也把外壳收掉，不让它一直挡着
+            var safety = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(2600)
+            };
+            safety.Tick += delegate
+            {
+                safety.Stop();
+                if (shell != null) shell.Dismiss();
+            };
+            safety.Start();
         }
 
         // 热键 / 顶栏 [—]：收起与显示切换（原地，不重播形变）
@@ -85,10 +100,17 @@ namespace IslandShot
 
             DouyinPlayerWindow window = douyinWindow;
             window.HideInstant();
-            MorphShellWindow.Play(from, to, 340, null, delegate
+
+            MorphShellWindow shell = null;
+            shell = MorphShellWindow.Create(from, to, 340, delegate
             {
-                window.ResetPosition();
-                window.Finish();
+                try
+                {
+                    window.ResetPosition();
+                    window.Finish();
+                }
+                catch (Exception) { }
+                if (shell != null) shell.Dismiss();
             });
         }
 

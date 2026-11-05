@@ -12,11 +12,14 @@ namespace IslandShot
     // 形变外壳：一块纯视觉的圆角板，从 A 矩形变到 B 矩形。
     //
     // 为什么需要它：抖音是 WebView2 子窗口，没法跟胶囊的 WPF 动画一起变形。
-    // 所以打开时"面板 → 抖音"、退出时"抖音 → 胶囊"这两段运动，
-    // 都由这个外壳来演，真窗口在旁边等着被揭开。
     //
-    // 它是一次性的：演完就自己关掉，不留任何常驻窗口，
-    // 也就不存在"底板露边""挡住点击"这类问题。
+    // 生命周期由调用方控制：
+    //   Create(...)   → 显示并开始形变
+    //   到位时回调 onArrived（这时通常去揭开真窗口）
+    //   调用 Dismiss() → 淡出并销毁
+    //
+    // 之所以不让它"到位就自己淡出"：页面还没画出第一帧时淡出会露出桌面，
+    // 所以由调用方等真窗口就绪后再叫它消失。
     // ---------------------------------------------------------------------
     internal sealed class MorphShellWindow : Window
     {
@@ -31,20 +34,20 @@ namespace IslandShot
         static extern int SetWindowLong(IntPtr hwnd, int index, int value);
 
         Border card;
-        Rect bounds;
+        bool dismissed;
 
-        /// <summary>播放一次形变。屏幕坐标，单位是 DIP。</summary>
-        public static void Play(Rect from, Rect to, int durationMs, Action onArrived, Action onFinished)
+        public static MorphShellWindow Create(Rect from, Rect to, int durationMs, Action onArrived)
         {
             try
             {
                 var shell = new MorphShellWindow();
-                shell.Run(from, to, durationMs, onArrived, onFinished);
+                shell.Run(from, to, durationMs, onArrived);
+                return shell;
             }
             catch (Exception)
             {
                 if (onArrived != null) { try { onArrived(); } catch (Exception) { } }
-                if (onFinished != null) { try { onFinished(); } catch (Exception) { } }
+                return null;
             }
         }
 
@@ -61,9 +64,9 @@ namespace IslandShot
             SnapsToDevicePixels = true;
         }
 
-        void Run(Rect from, Rect to, int durationMs, Action onArrived, Action onFinished)
+        void Run(Rect from, Rect to, int durationMs, Action onArrived)
         {
-            bounds = Rect.Union(from, to);
+            Rect bounds = Rect.Union(from, to);
             bounds.Inflate(ShadowMargin, ShadowMargin);
             Left = bounds.Left;
             Top = bounds.Top;
@@ -101,32 +104,41 @@ namespace IslandShot
             var duration = new Duration(TimeSpan.FromMilliseconds(Math.Max(80, durationMs)));
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
 
-            double fromLeft = from.Left - bounds.Left;
-            double fromTop = from.Top - bounds.Top;
-            double toLeft = to.Left - bounds.Left;
-            double toTop = to.Top - bounds.Top;
-
             card.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(from.Width, to.Width, duration) { EasingFunction = ease });
             card.BeginAnimation(FrameworkElement.HeightProperty, new DoubleAnimation(from.Height, to.Height, duration) { EasingFunction = ease });
-            card.BeginAnimation(Canvas.LeftProperty, new DoubleAnimation(fromLeft, toLeft, duration) { EasingFunction = ease });
-            card.BeginAnimation(Canvas.TopProperty, new DoubleAnimation(fromTop, toTop, duration) { EasingFunction = ease });
+            card.BeginAnimation(Canvas.LeftProperty, new DoubleAnimation(from.Left - bounds.Left, to.Left - bounds.Left, duration) { EasingFunction = ease });
+            card.BeginAnimation(Canvas.TopProperty, new DoubleAnimation(from.Top - bounds.Top, to.Top - bounds.Top, duration) { EasingFunction = ease });
 
             var arrive = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Max(80, durationMs)) };
             arrive.Tick += delegate
             {
                 arrive.Stop();
                 try { if (onArrived != null) onArrived(); } catch (Exception) { }
+            };
+            arrive.Start();
+        }
 
-                // 到位后淡出，露出底下已经就位的真窗口
-                var fade = new DoubleAnimation(1, 0, new Duration(TimeSpan.FromMilliseconds(130))) { EasingFunction = ease };
+        /// <summary>淡出并销毁。调用方在真窗口就绪后调用。</summary>
+        public void Dismiss()
+        {
+            if (dismissed) return;
+            dismissed = true;
+            try
+            {
+                var fade = new DoubleAnimation(1, 0, new Duration(TimeSpan.FromMilliseconds(130)))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
                 fade.Completed += delegate
                 {
                     try { Close(); } catch (Exception) { }
-                    if (onFinished != null) { try { onFinished(); } catch (Exception) { } }
                 };
                 BeginAnimation(UIElement.OpacityProperty, fade);
-            };
-            arrive.Start();
+            }
+            catch (Exception)
+            {
+                try { Close(); } catch (Exception) { }
+            }
         }
     }
 }
