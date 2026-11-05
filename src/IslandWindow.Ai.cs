@@ -63,6 +63,7 @@ namespace IslandShot
         Border[] aiOrbs;
 
         bool aiVisible;
+        bool aiLastSurface;     // 上次收起时是 AI 面板 → 下次展开直接回到 AI
         bool aiStreaming;
         bool aiChipOpen;
         bool aiImeComposing;
@@ -840,6 +841,7 @@ namespace IslandShot
 
             bool fromImagePanel = expanded;
             aiVisible = true;
+            aiLastSurface = true;
             EnsureAiShadow();
             if (panel != null) panel.Visibility = Visibility.Collapsed;
             ApplyAiWindowHeight(true);
@@ -874,6 +876,7 @@ namespace IslandShot
             if (aiStreaming) StopAiStream();
 
             aiVisible = false;
+            aiLastSurface = false;
             // 先淡出、再 Collapsed、最后摘掉投影：三步顺序不能乱，
             // 否则分层窗口会残留 AI 面板的阴影（DropShadowEffect 的缓存）。
             Motion.Fade(aiPanel, 0, 120, Motion.Exit, 0, delegate
@@ -1273,10 +1276,17 @@ namespace IslandShot
         {
             if (!string.IsNullOrEmpty(error))
             {
-                message.Text += "\n\n[出错了] " + error;
+                message.Text = (message.Text.Length == 0 ? "" : message.Text + "\n\n") + "[出错了] " + error;
                 message.Failed = true;
             }
-            if (aiCurrent != null && aiCurrent.Messages.Contains(message)) RenderChat();
+            if (aiCurrent == null || !aiCurrent.Messages.Contains(message)) return;
+
+            // 一个字都没出来就被停掉（比如刚发就点停止）：别留一个空气泡
+            if (string.IsNullOrEmpty(error) && message.Text.Length == 0)
+            {
+                aiCurrent.Messages.Remove(message);
+            }
+            RenderChat();
         }
 
         void StopAiStream()

@@ -130,6 +130,8 @@ namespace IslandShot
             PreviewMouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
             {
                 if (!expanded) return;
+                // AI 状态下点空白处不收起：只有 × 或 Esc 能关（用户明确要求）
+                if (aiVisible) return;
                 if (panel.IsMouseOver) return;
                 if (aiPanel != null && aiPanel.IsMouseOver) return;
                 if (aiStreaming) return;
@@ -140,7 +142,7 @@ namespace IslandShot
             };
             Deactivated += delegate
             {
-                if (expanded && !aiStreaming && !capturing && !suppressDeactivate && !dragOut) SetExpanded(false);
+                if (expanded && !aiVisible && !aiStreaming && !capturing && !suppressDeactivate && !dragOut) SetExpanded(false);
             };
             PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs e)
             {
@@ -196,7 +198,7 @@ namespace IslandShot
                     {
                         Dispatcher.BeginInvoke(new Action(delegate
                         {
-                            if (expanded && !dragOut && !aiStreaming) SetExpanded(false);
+                            if (expanded && !dragOut && !aiVisible && !aiStreaming) SetExpanded(false);
                         }));
                     });
                 mouseHook.Start();
@@ -864,6 +866,13 @@ namespace IslandShot
 
         void SetExpanded(bool value)
         {
+            // 上次关的是 AI 面板 → 从胶囊再展开时直接回到 AI 面板。
+            // （图片/文字面板不受影响：它们本来就默认回到"图片"页签）
+            if (value && aiLastSurface && !aiVisible && aiPanel != null)
+            {
+                aiVisible = true;
+                if (panel != null) panel.Visibility = Visibility.Collapsed;
+            }
             if (mouseHook != null) mouseHook.Enabled = value;
             SetExpandedAnimated(value);
             if (!value) ResetOrbHubInstant();
@@ -1986,7 +1995,7 @@ namespace IslandShot
                     dragTimer.Tick += delegate
                     {
                         dragTimer.Stop();
-                        if (!expanded) { dropArmed = true; SetExpanded(true); }
+                        if (!expanded) { dropArmed = true; aiLastSurface = false; SetExpanded(true); }
                     };
                 }
                 if (!dragTimer.IsEnabled) dragTimer.Start();
@@ -2092,6 +2101,7 @@ namespace IslandShot
         void RestoreShot(bool preview)
         {
             Show();
+            aiLastSurface = false;   // 截图/预览回来时一定是图片面板
             SetExpanded(preview);
             suppressDeactivate = false;
             if (preview) Activate();

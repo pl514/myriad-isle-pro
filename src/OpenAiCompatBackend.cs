@@ -58,47 +58,60 @@ namespace IslandShot
             string body = "{\"model\":\"" + JsonEscape(model) + "\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\""
                 + JsonEscape(text) + "\"}]}";
 
-            var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-            if (apiKey.Length > 0)
-            {
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-            }
-            request.Content = new StringContent(body, Encoding.UTF8, "application/json");
-
             using (var total = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
                 total.CancelAfter(TimeSpan.FromSeconds(180));   // 总时长
 
-                HttpResponseMessage response;
-                // 等响应头（≈ 连接 + 首字）最多 25 秒
-                using (var headerTimer = CancellationTokenSource.CreateLinkedTokenSource(total.Token))
+                // 429/502/503 自动重试：智谱免费档很容易触发限流，
+                // 一次就失败对用户来说就是"不能用"。
+                HttpResponseMessage response = null;
+                int attempt = 0;
+                int lastStatus = 0;
+                string lastBody = "";
+                while (true)
                 {
-                    headerTimer.CancelAfter(TimeSpan.FromSeconds(25));
-                    try
+                    attempt++;
+                    HttpRequestMessage request = BuildRequest(body);
+
+                    // 等响应头（≈ 连接 + 首字）最多 25 秒
+                    using (var headerTimer = CancellationTokenSource.CreateLinkedTokenSource(total.Token))
                     {
-                        response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, headerTimer.Token);
+                        headerTimer.CancelAfter(TimeSpan.FromSeconds(25));
+                        try
+                        {
+                            response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, headerTimer.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            if (token.IsCancellationRequested) throw;   // 用户主动停：交给前端静默处理
+                            throw new InvalidOperationException("等太久了（25 秒没有响应），已取消");
+                        }
+                        catch (HttpRequestException exception)
+                        {
+                            throw BuildNetworkError(exception);
+                        }
                     }
-                    catch (OperationCanceledException)
+
+                    if (response.IsSuccessStatusCode) break;
+
+                    lastStatus = (int)response.StatusCode;
+                    lastBody = "";
+                    try { lastBody = await response.Content.ReadAsStringAsync(); } catch (Exception) { }
+                    response.Dispose();
+
+                    bool retryable = lastStatus == 429 || lastStatus == 502 || lastStatus == 503 || lastStatus == 504;
+                    if (retryable && attempt < 3)
                     {
-                        if (token.IsCancellationRequested) throw;   // 用户主动停：交给前端静默处理
-                        throw new InvalidOperationException("等太久了（25 秒没有响应），已取消");
+                        Program.Append("CapsuleImagePro-error.log",
+                            "retry #" + attempt + " status=" + lastStatus + " " + lastBody);
+                        await Task.Delay(1200 * attempt, token);
+                        continue;
                     }
-                    catch (HttpRequestException exception)
-                    {
-                        throw BuildNetworkError(exception);
-                    }
+                    throw BuildHttpError(lastStatus, lastBody, attempt);
                 }
 
                 using (response)
                 {
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        // 不用 EnsureSuccessStatusCode：那样拿不到状态码，错误映射全废
-                        int status = (int)response.StatusCode;
-                        string errorBody = "";
-                        try { errorBody = await response.Content.ReadAsStringAsync(); } catch (Exception) { }
-                        throw BuildHttpError(status, errorBody);
-                    }
 
                     using (Stream stream = await response.Content.ReadAsStreamAsync())
                     using (var reader = new StreamReader(stream, Encoding.UTF8))
@@ -129,6 +142,18 @@ namespace IslandShot
                     }
                 }
             }
+        }
+
+        // 每次重试都要新建 request：HttpRequestMessage 发过一次就不能复用
+        HttpRequestMessage BuildRequest(string body)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            if (apiKey.Length > 0)
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            }
+            request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+            return request;
         }
 
         // ------------------------------------------------------------ 解析
@@ -208,17 +233,23 @@ namespace IslandShot
 
         // ------------------------------------------------------------ 错误文案
 
-        static Exception BuildHttpError(int status, string body)
+        static Exception BuildHttpError(int status, string body, int attempts)
         {
             string snippet = body == null ? "" : body.Trim();
             if (snippet.Length > 200) snippet = snippet.Substring(0, 200) + "…";
+            string tried = attempts > 1 ? "（已自动重试 " + (attempts - 1) + " 次）" : "";
 
             if (status == 401) return new InvalidOperationException("API Key 无效（401）。检查 data\\keys.txt 里那一行。");
             if (status == 402) return new InvalidOperationException("余额或免费额度不足（402）。");
             if (status == 403) return new InvalidOperationException("这个 Key 没有权限访问该模型（403）。" + snippet);
             if (status == 404) return new InvalidOperationException("服务端没有这个模型，或者接口地址不对（404）。检查 models.txt 里的 model 列。");
-            if (status == 429) return new InvalidOperationException("请求太频繁，等两秒再试（429）。");
-            return new InvalidOperationException("请求失败（" + status + "）：" + snippet);
+            if (status == 429)
+            {
+                return new InvalidOperationException(
+                    "免费额度被限流了（429）" + tried + "。\n" +
+                    "智谱免费档有并发/频率上限，隔几秒再发一句，或者把 chip 切到 DeepSeek。\n" + snippet);
+            }
+            return new InvalidOperationException("请求失败（" + status + "）" + tried + "：" + snippet);
         }
 
         Exception BuildNetworkError(HttpRequestException exception)
