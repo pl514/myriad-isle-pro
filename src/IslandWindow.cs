@@ -30,6 +30,7 @@ namespace IslandShot
         const int HotkeyImages = 0x4A57;
         const int HotkeyRecord = 0x4A58;
         const int HotkeyStopRecord = 0x4A59;
+        const int HotkeyDouyin = 0x4A5A;
         const uint ModAlt = 0x0001, ModControl = 0x0002, ModShift = 0x0004, ModNoRepeat = 0x4000;
         HotkeyBinding[] hotkeys;
         const uint VkSpace = 0x20, VkA = 0x41, Vk2 = 0x32, Vk3 = 0x33;
@@ -240,6 +241,7 @@ namespace IslandShot
                 else if (id == HotkeyImages) ToggleDetachedImages();
                 else if (id == HotkeyRecord) ToggleRecording();
                 else if (id == HotkeyStopRecord) StopRecording();
+                else if (id == HotkeyDouyin) ToggleDouyinWindow();
                 handled = true;
             }
             else if (message == WM_CLIPBOARDUPDATE)
@@ -1674,6 +1676,7 @@ namespace IslandShot
             if (action == HotkeyAction.Window) return HotkeyWindow;
             if (action == HotkeyAction.Screen) return HotkeyScreen;
             if (action == HotkeyAction.ImagesToggle) return HotkeyImages;
+            if (action == HotkeyAction.DouyinToggle) return HotkeyDouyin;
             return HotkeyRecord;
         }
 
@@ -1696,6 +1699,7 @@ namespace IslandShot
             UnregisterHotKey(handle, HotkeyScreen);
             UnregisterHotKey(handle, HotkeyImages);
             UnregisterHotKey(handle, HotkeyRecord);
+            UnregisterHotKey(handle, HotkeyDouyin);
         }
 
         string ApplyHotkeys(HotkeyBinding[] next)

@@ -1,0 +1,567 @@
+using System;
+using System.IO;
+using Path = System.IO.Path;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Effects;
+using System.Windows.Shapes;
+using System.Windows.Threading;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
+
+namespace IslandShot
+{
+    // ---------------------------------------------------------------------
+    // 抖音小窗：一个独立的无边框置顶窗口，里面是 WebView2 打开抖音网页版。
+    //
+    // 为什么不放进胶囊窗口：胶囊是分层透明窗口（AllowsTransparency），
+    // WebView2 是子 HWND，放进去一点画面都不会有。这一点在验证阶段已经实测确认。
+    //
+    // 和主窗口的分工：
+    //   · 热键（可自定义）由主窗口统一注册，回调到这里 ToggleVisible；
+    //   · 顶栏 [—] = 收起/显示（等价于按热键）；
+    //   · 顶栏 [×] = 退出抖音（销毁 WebView2，下次要点绿球重新启动）；
+    //   · 滚轮在窗口范围内被底层钩子截获，转发给 WebView2，游戏里也能刷。
+    // ---------------------------------------------------------------------
+    internal sealed class DouyinPlayerWindow : Window
+    {
+        const int WM_MOUSEWHEEL = 0x020A;
+        const int WH_MOUSE_LL = 14;
+
+        [DllImport("user32.dll")] static extern bool ClipCursor(IntPtr rect);
+        [DllImport("user32.dll")] static extern int ShowCursor(bool show);
+        [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
+        [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT pt);
+        [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumChildProc proc, IntPtr lParam);
+        [DllImport("user32.dll", CharSet = CharSet.Auto)] static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder name, int max);
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+        [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hhk);
+        [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto)] static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+        delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct POINT { public int x; public int y; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct MSLLHOOKSTRUCT
+        {
+            public POINT pt;
+            public uint mouseData;
+            public uint flags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        public event EventHandler UserClosed;
+
+        readonly WebView2 view;
+        readonly TextBlock statusText;
+        readonly TextBlock hotkeyText;
+
+        IntPtr handle;
+        IntPtr childHwnd = IntPtr.Zero;
+        IntPtr mouseHook = IntPtr.Zero;
+        LowLevelMouseProc mouseProc;
+        int cursorShown;
+
+        bool dragging;
+        double dragDpi = 1.0, dragCursorX, dragCursorY, dragStartLeft, dragStartTop;
+        double defaultLeft, defaultTop;
+
+        static string PositionFile
+        {
+            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "douyin.txt"); }
+        }
+
+        static string UserDataFolder
+        {
+            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "webview2"); }
+        }
+
+        public DouyinPlayerWindow()
+        {
+            Title = "抖音";
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.NoResize;
+            ShowInTaskbar = false;
+            Topmost = true;
+            AllowsTransparency = false;
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Background = new SolidColorBrush(Color.FromRgb(13, 15, 21));
+            FontFamily = new FontFamily("Microsoft YaHei UI");
+
+            // 尺寸按屏幕比例算：宽约 22%，高约 72%，居左
+            Rect work = SystemParameters.WorkArea;
+            double w = Math.Max(320, Math.Min(520, work.Width * 0.22));
+            double h = Math.Max(560, Math.Min(900, work.Height * 0.72));
+            Width = w;
+            Height = h;
+            defaultLeft = work.Left + 12;
+            defaultTop = work.Top + (work.Height - h) / 2;
+            Left = defaultLeft;
+            Top = defaultTop;
+            LoadPosition();
+
+            // ---- 顶栏 ----
+            var header = new Border
+            {
+                Height = 32,
+                Background = new SolidColorBrush(Color.FromRgb(22, 24, 32)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(38, 42, 54)),
+                BorderThickness = new Thickness(0, 0, 0, 1)
+            };
+            var headerGrid = new Grid();
+
+            var dragZone = new Border { Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)), Cursor = Cursors.SizeAll };
+            dragZone.MouseLeftButtonDown += DragDown;
+            dragZone.MouseMove += DragMoveHandler;
+            dragZone.MouseLeftButtonUp += DragUp;
+            headerGrid.Children.Add(dragZone);
+
+            var title = new TextBlock
+            {
+                Text = "抖音",
+                FontSize = 11.5,
+                Foreground = new SolidColorBrush(Color.FromRgb(200, 205, 218)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0),
+                IsHitTestVisible = false
+            };
+            headerGrid.Children.Add(title);
+
+            hotkeyText = new TextBlock
+            {
+                FontSize = 10.5,
+                Foreground = new SolidColorBrush(Color.FromRgb(120, 127, 145)),
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 0, 86, 0),
+                IsHitTestVisible = false
+            };
+            headerGrid.Children.Add(hotkeyText);
+
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            buttons.Children.Add(BuildHeaderButton(false, "收起到后台（跟热键一样）", ToggleVisible));
+            buttons.Children.Add(BuildHeaderButton(true, "退出抖音", ExitPlayer));
+            headerGrid.Children.Add(buttons);
+            header.Child = headerGrid;
+
+            // ---- 内容 ----
+            view = new WebView2();
+            statusText = new TextBlock
+            {
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromRgb(235, 140, 140)),
+                Background = new SolidColorBrush(Color.FromArgb(235, 20, 22, 30)),
+                Padding = new Thickness(12),
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Collapsed
+            };
+            var body = new Grid();
+            body.Children.Add(view);
+            body.Children.Add(statusText);
+
+            var root = new DockPanel();
+            DockPanel.SetDock(header, Dock.Top);
+            root.Children.Add(header);
+            root.Children.Add(body);
+            Content = root;
+
+            SourceInitialized += delegate
+            {
+                handle = new WindowInteropHelper(this).Handle;
+                InstallMouseHook();
+            };
+            Loaded += delegate { InitWebView(); };
+            Closing += delegate
+            {
+                ReleaseCursor();
+                if (mouseHook != IntPtr.Zero)
+                {
+                    UnhookWindowsHookEx(mouseHook);
+                    mouseHook = IntPtr.Zero;
+                }
+            };
+        }
+
+        // ------------------------------------------------------------ 顶栏按钮
+
+        FrameworkElement BuildHeaderButton(bool close, string tip, Action click)
+        {
+            var button = new Border
+            {
+                Width = 30,
+                Height = 22,
+                CornerRadius = new CornerRadius(5),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                ToolTip = tip,
+                Margin = new Thickness(2, 0, 0, 0)
+            };
+            var icon = new Grid();
+            var line = new Rectangle
+            {
+                Width = 9,
+                Height = 1.4,
+                RadiusX = 0.7,
+                RadiusY = 0.7,
+                Fill = new SolidColorBrush(Color.FromRgb(190, 196, 210)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                RenderTransformOrigin = new Point(0.5, 0.5)
+            };
+            if (close)
+            {
+                line.RenderTransform = new RotateTransform(45);
+                line.Width = 11;
+                icon.Children.Add(line);
+                icon.Children.Add(new Rectangle
+                {
+                    Width = 11,
+                    Height = 1.4,
+                    RadiusX = 0.7,
+                    RadiusY = 0.7,
+                    Fill = new SolidColorBrush(Color.FromRgb(190, 196, 210)),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    RenderTransform = new RotateTransform(-45),
+                    RenderTransformOrigin = new Point(0.5, 0.5)
+                });
+            }
+            else
+            {
+                icon.Children.Add(line);
+            }
+            button.Child = icon;
+            button.MouseEnter += delegate
+            {
+                button.Background = new SolidColorBrush(Color.FromArgb(
+                    (byte)(close ? 46 : 30),
+                    (byte)(close ? 232 : 255),
+                    (byte)(close ? 92 : 255),
+                    (byte)(close ? 98 : 255)));
+            };
+            button.MouseLeave += delegate { button.Background = Brushes.Transparent; };
+            button.MouseLeftButtonUp += delegate
+            {
+                if (click != null) click();
+            };
+            return button;
+        }
+
+        // ------------------------------------------------------------ 拖动（限制在屏内）
+
+        void DragDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+            dragging = true;
+            dragDpi = Dpi();
+            System.Drawing.Point cursor = System.Windows.Forms.Cursor.Position;
+            dragCursorX = cursor.X / dragDpi;
+            dragCursorY = cursor.Y / dragDpi;
+            dragStartLeft = Left;
+            dragStartTop = Top;
+            ((Border)sender).CaptureMouse();
+            e.Handled = true;
+        }
+
+        void DragMoveHandler(object sender, MouseEventArgs e)
+        {
+            if (!dragging) return;
+            if (e.LeftButton != MouseButtonState.Pressed) { EndDrag(sender); return; }
+            System.Drawing.Point cursor = System.Windows.Forms.Cursor.Position;
+            double left = dragStartLeft + (cursor.X / dragDpi - dragCursorX);
+            double top = dragStartTop + (cursor.Y / dragDpi - dragCursorY);
+            ClampToWorkArea(ref left, ref top);
+            Left = left;
+            Top = top;
+            e.Handled = true;
+        }
+
+        void DragUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!dragging) return;
+            EndDrag(sender);
+            e.Handled = true;
+        }
+
+        void EndDrag(object sender)
+        {
+            dragging = false;
+            Border zone = sender as Border;
+            if (zone != null) { try { zone.ReleaseMouseCapture(); } catch (Exception) { } }
+            SavePosition();
+        }
+
+        void ClampToWorkArea(ref double left, ref double top)
+        {
+            try
+            {
+                double dpi = Dpi();
+                var probe = new System.Drawing.Point(
+                    (int)Math.Round((left + Width / 2) * dpi),
+                    (int)Math.Round((top + Height / 2) * dpi));
+                System.Drawing.Rectangle work = System.Windows.Forms.Screen.FromPoint(probe).WorkingArea;
+                double minLeft = work.Left / dpi;
+                double minTop = work.Top / dpi;
+                double maxLeft = work.Right / dpi - Width;
+                double maxTop = work.Bottom / dpi - Height;
+                if (maxLeft < minLeft) maxLeft = minLeft;
+                if (maxTop < minTop) maxTop = minTop;
+                left = Math.Max(minLeft, Math.Min(maxLeft, left));
+                top = Math.Max(minTop, Math.Min(maxTop, top));
+            }
+            catch (Exception) { }
+        }
+
+        double Dpi()
+        {
+            PresentationSource source = PresentationSource.FromVisual(this);
+            return source == null ? 1.0 : source.CompositionTarget.TransformToDevice.M11;
+        }
+
+        void LoadPosition()
+        {
+            try
+            {
+                if (!File.Exists(PositionFile)) return;
+                string[] parts = File.ReadAllText(PositionFile).Trim().Split(',');
+                if (parts.Length != 2) return;
+                double left, top;
+                if (!double.TryParse(parts[0], out left) || !double.TryParse(parts[1], out top)) return;
+                ClampToWorkArea(ref left, ref top);
+                Left = left;
+                Top = top;
+            }
+            catch (Exception) { }
+        }
+
+        void SavePosition()
+        {
+            try
+            {
+                string folder = Path.GetDirectoryName(PositionFile);
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                File.WriteAllText(PositionFile, ((int)Math.Round(Left)) + "," + ((int)Math.Round(Top)));
+            }
+            catch (Exception) { }
+        }
+
+        // ------------------------------------------------------------ 显示 / 收起 / 退出
+
+        public void SetHotkeyText(string text)
+        {
+            if (hotkeyText != null) hotkeyText.Text = string.IsNullOrEmpty(text) ? "" : text;
+        }
+
+        public void ToggleVisible()
+        {
+            if (IsVisible) HidePlayer(); else ShowPlayer();
+        }
+
+        public void ShowPlayer()
+        {
+            Show();
+            Activate();
+            GrabMouse();
+        }
+
+        public void HidePlayer()
+        {
+            ReleaseCursor();
+            Hide();
+        }
+
+        void ExitPlayer()
+        {
+            ReleaseCursor();
+            try { if (view != null && view.CoreWebView2 != null) view.Dispose(); }
+            catch (Exception) { }
+            try { Close(); }
+            catch (Exception) { }
+            if (UserClosed != null) { try { UserClosed(this, EventArgs.Empty); } catch (Exception) { } }
+        }
+
+        // ------------------------------------------------------------ WebView2
+
+        async void InitWebView()
+        {
+            try
+            {
+                string folder = UserDataFolder;
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required");
+                CoreWebView2Environment env = await CoreWebView2Environment.CreateAsync(null, folder, options);
+                await view.EnsureCoreWebView2Async(env);
+                CoreWebView2 core = view.CoreWebView2;
+                if (core == null) { ShowStatus("抖音窗口初始化失败：WebView2 没有就绪。"); return; }
+
+                core.Settings.AreDevToolsEnabled = false;
+                core.Settings.IsStatusBarEnabled = false;
+                core.NewWindowRequested += delegate(object s, CoreWebView2NewWindowRequestedEventArgs args)
+                {
+                    args.Handled = true;
+                    try { core.Navigate(args.Uri); } catch (Exception) { }
+                };
+                core.NavigationCompleted += delegate(object s, CoreWebView2NavigationCompletedEventArgs args)
+                {
+                    if (!args.IsSuccess) ShowStatus("页面加载失败（" + args.WebErrorStatus + "），检查一下网络。");
+                    else HideStatus();
+                    Dispatcher.BeginInvoke(new Action(CleanLayout), DispatcherPriority.Background);
+                };
+                core.Navigate("https://www.douyin.com/");
+            }
+            catch (Exception ex)
+            {
+                ShowStatus("抖音窗口启动失败：" + ex.Message);
+            }
+        }
+
+        void ShowStatus(string text)
+        {
+            statusText.Text = text;
+            statusText.Visibility = Visibility.Visible;
+        }
+
+        void HideStatus()
+        {
+            statusText.Visibility = Visibility.Collapsed;
+        }
+
+        // 隐藏左侧导航栏 + 收掉左侧留白，尽量让画面占满（单页应用会重渲染，所以补几次）
+        void CleanLayout()
+        {
+            if (view == null || view.CoreWebView2 == null) return;
+            try
+            {
+                string js =
+                    "(function(){try{var log=[];var els=document.querySelectorAll('div,aside,nav');" +
+                    "for(var i=0;i<els.length;i++){var r=els[i].getBoundingClientRect();" +
+                    "if(r.height>innerHeight*0.45&&r.width>24&&r.width<180&&r.left<50){" +
+                    "els[i].style.display='none';}}" +
+                    "var v=document.querySelector('video');if(!v)return 'none';" +
+                    "var el=v;while(el&&el!==document.body){var cs=getComputedStyle(el);" +
+                    "if(parseFloat(cs.paddingLeft)>0){el.style.paddingLeft='0px';}" +
+                    "if(parseFloat(cs.marginLeft)>0){el.style.marginLeft='0px';}el=el.parentElement;}" +
+                    "var now=Math.round(document.querySelector('video').getBoundingClientRect().left);" +
+                    "if(now>4){var w=document.querySelector('video');" +
+                    "while(w.parentElement&&w.parentElement!==document.body)w=w.parentElement;" +
+                    "w.style.transform='translateX(-'+now+'px)';w.style.width='calc(100% + '+now+'px)';}" +
+                    "return 'ok';}catch(e){return 'err';}})()";
+                view.CoreWebView2.ExecuteScriptAsync(js);
+            }
+            catch (Exception) { }
+        }
+
+        // ------------------------------------------------------------ 滚轮转发
+
+        void InstallMouseHook()
+        {
+            try
+            {
+                mouseProc = MouseProc;
+                mouseHook = SetWindowsHookEx(WH_MOUSE_LL, mouseProc, GetModuleHandle(null), 0);
+            }
+            catch (Exception) { }
+        }
+
+        IntPtr MouseProc(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            try
+            {
+                if (nCode >= 0 && IsVisible && wParam.ToInt32() == WM_MOUSEWHEEL)
+                {
+                    MSLLHOOKSTRUCT data = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                    if (IsInsideWindow(data.pt))
+                    {
+                        short delta = (short)((data.mouseData >> 16) & 0xFFFF);
+                        ForwardWheel(data.pt, delta);
+                        return (IntPtr)1;
+                    }
+                }
+            }
+            catch (Exception) { }
+            return CallNextHookEx(mouseHook, nCode, wParam, lParam);
+        }
+
+        bool IsInsideWindow(POINT pt)
+        {
+            double dpi = Dpi();
+            int left = (int)Math.Round(Left * dpi);
+            int top = (int)Math.Round(Top * dpi);
+            int right = (int)Math.Round((Left + Width) * dpi);
+            int bottom = (int)Math.Round((Top + Height) * dpi);
+            return pt.x >= left && pt.x <= right && pt.y >= top && pt.y <= bottom;
+        }
+
+        void ForwardWheel(POINT pt, int delta)
+        {
+            IntPtr target = WindowFromPoint(pt);
+            if (target == IntPtr.Zero || target == handle) target = FindWebViewHwnd();
+            if (target == IntPtr.Zero || target == handle) return;
+            int wparam = (delta & 0xFFFF) << 16;
+            int lparam = ((pt.y & 0xFFFF) << 16) | (pt.x & 0xFFFF);
+            PostMessage(target, WM_MOUSEWHEEL, new IntPtr(wparam), new IntPtr(lparam));
+        }
+
+        IntPtr FindWebViewHwnd()
+        {
+            if (childHwnd != IntPtr.Zero) return childHwnd;
+            IntPtr found = IntPtr.Zero;
+            EnumChildWindows(handle, delegate(IntPtr h, IntPtr param)
+            {
+                var name = new System.Text.StringBuilder(256);
+                GetClassName(h, name, 256);
+                if (name.ToString().IndexOf("Chrome", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    found = h;
+                    return false;
+                }
+                return true;
+            }, IntPtr.Zero);
+            childHwnd = found;
+            return found;
+        }
+
+        // 抢回光标：游戏把光标藏起来/锁住时，让鼠标能用
+        void GrabMouse()
+        {
+            try
+            {
+                ClipCursor(IntPtr.Zero);
+                for (int i = 0; i < 3; i++) { ShowCursor(true); cursorShown++; }
+                double dpi = Dpi();
+                SetCursorPos(
+                    (int)Math.Round((Left + Width / 2) * dpi),
+                    (int)Math.Round((Top + Height * 0.45) * dpi));
+            }
+            catch (Exception) { }
+        }
+
+        void ReleaseCursor()
+        {
+            try
+            {
+                while (cursorShown > 0) { ShowCursor(false); cursorShown--; }
+            }
+            catch (Exception) { }
+        }
+    }
+}

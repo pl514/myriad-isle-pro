@@ -412,7 +412,7 @@ namespace IslandShot
         // 三个功能暂时是占位：球和动画先跑通，具体窗口接进来时替换这里就行。
         void LaunchDouyin()
         {
-            ShowToolMessage("抖音", "入口已就位。视频小窗还在验证版里，明天接进来。");
+            ShowDouyinWindow();
         }
 
         void LaunchAiChat()
