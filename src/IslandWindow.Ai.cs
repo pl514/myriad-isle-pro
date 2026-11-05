@@ -1,0 +1,1318 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Markup;
+using System.Windows.Media;
+using System.Windows.Media.Effects;
+using System.Windows.Threading;
+using Forms = System.Windows.Forms;
+
+namespace IslandShot
+{
+    // ---------------------------------------------------------------------
+    // AI 面板（第一阶段：只做前端 + 假数据）
+    //
+    // 结构：顶栏（AI 助手 + 两个网页版球 + 关闭）× 左栏（新对话 + 历史）× 聊天区，底栏是输入框 + 模型 chip + 发送。
+    // 全部是原生 WPF 控件——分层窗口里塞不进 WebView2（见交接包 §0）。
+    //
+    // 状态：expanded 仍表示"窗口展开态"，aiVisible 表示"展开的是 AI 面板"。
+    // 收起一律走 SetExpanded(false)，窗口高度在收起动画结束后还原（IslandWindow.Motion.cs）。
+    // ---------------------------------------------------------------------
+    internal sealed partial class IslandWindow
+    {
+        const double AiPanelWidth = 860;
+        const double AiPanelHeight = 420;
+        const double AiPanelTop = 8;
+        const double AiSidebarWidth = 160;
+        const double AiBubbleMaxWidth = 560;
+
+        static readonly FontFamily AiFont = new FontFamily("Microsoft YaHei UI");
+        static readonly Color AiTextColor = Color.FromRgb(230, 233, 240);
+        static readonly Color AiMutedColor = Color.FromRgb(167, 160, 196);
+        static readonly Color AiAccentColor = Color.FromRgb(124, 108, 242);
+        static readonly Color AiBubbleColor = Color.FromRgb(38, 44, 54);
+        static readonly Color AiUserBubbleColor = Color.FromRgb(108, 92, 226);
+
+        Border aiPanel;
+        Border aiChipButton;
+        Border aiChipPopup;
+        Border aiModelOptions;
+        Border aiAddSheet;
+        Button aiSendButton;
+        TextBox aiInput;
+        TextBox aiAddNameBox;
+        TextBox aiAddEndpointBox;
+        TextBox aiAddKeyBox;
+        TextBlock aiModelChipText;
+        TextBlock aiModelValueText;
+        TextBlock aiReasoningValueText;
+        TextBlock aiEmptyHint;
+        StackPanel aiEmptyState;
+        ScrollViewer aiChatScroll;
+        StackPanel aiMessageList;
+        StackPanel aiSessionList;
+        Border[] aiOrbs;
+
+        bool aiVisible;
+        bool aiStreaming;
+        bool aiChipOpen;
+        bool aiImeComposing;
+
+        CancellationTokenSource aiCancellation;
+        readonly IChatBackend aiBackend = new FakeBackend();
+        readonly List<ChatSession> aiSessions = new List<ChatSession>();
+        readonly string[] aiOrbIds = new string[] { "deepseek", "doubao" };
+        ChatSession aiCurrent;
+        string aiProvider = "deepseek";
+        string aiModelLabel = "DeepSeek 网页版";
+        string aiReasoning = "High";
+        string aiLastUserText = "";
+
+        // ================================================================ 构建
+
+        Border BuildAiPanel()
+        {
+            var shell = new Grid();
+
+            var layout = new Grid();
+            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(40) });
+            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            // ---------------------------------------------------------- 顶栏
+            var header = new Grid { Margin = new Thickness(18, 0, 14, 0) };
+            var headerLeft = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            headerLeft.Children.Add(new TextBlock
+            {
+                Text = "AI 助手",
+                FontFamily = AiFont,
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(AiTextColor),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            headerLeft.Children.Add(new Border
+            {
+                Width = 1,
+                Height = 16,
+                Margin = new Thickness(12, 0, 4, 0),
+                Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            headerLeft.Children.Add(BuildAiOrbRow());
+
+            var headerRight = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            var close = AiGhostButton("×");
+            close.FontSize = 15;
+            close.Click += delegate { CloseAiPanel(); };
+            headerRight.Children.Add(close);
+
+            header.Children.Add(headerLeft);
+            header.Children.Add(headerRight);
+            var headerWrap = new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromArgb(14, 255, 255, 255)),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Child = header
+            };
+            Grid.SetRow(headerWrap, 0);
+            layout.Children.Add(headerWrap);
+
+            // ---------------------------------------------------------- 主体
+            var body = new Grid();
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(AiSidebarWidth) });
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var side = new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)),
+                BorderThickness = new Thickness(0, 0, 1, 0),
+                Padding = new Thickness(10, 8, 10, 8)
+            };
+            var sideGrid = new Grid();
+            sideGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            sideGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            var newChat = ToolButton("＋ 新对话", 8);
+            newChat.HorizontalAlignment = HorizontalAlignment.Stretch;
+            newChat.Margin = new Thickness(0, 0, 0, 8);
+            newChat.Click += delegate { NewAiChat(); };
+            Grid.SetRow(newChat, 0);
+            sideGrid.Children.Add(newChat);
+
+            aiSessionList = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
+            var sessionScroll = new ScrollViewer
+            {
+                Content = aiSessionList,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Background = Brushes.Transparent
+            };
+            Grid.SetRow(sessionScroll, 1);
+            sideGrid.Children.Add(sessionScroll);
+            side.Child = sideGrid;
+            Grid.SetColumn(side, 0);
+            body.Children.Add(side);
+
+            aiMessageList = new StackPanel { Margin = new Thickness(0, 4, 0, 4) };
+            aiChatScroll = new ScrollViewer
+            {
+                Content = aiMessageList,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Padding = new Thickness(18, 10, 18, 6),
+                Background = Brushes.Transparent
+            };
+            aiEmptyHint = new TextBlock
+            {
+                Text = "问点什么吧",
+                FontFamily = AiFont,
+                FontSize = 12.5,
+                Foreground = new SolidColorBrush(Color.FromArgb(150, 167, 160, 196)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center
+            };
+            var emptyIcon = new TextBlock
+            {
+                Text = "✧",
+                FontFamily = AiFont,
+                FontSize = 26,
+                Foreground = new SolidColorBrush(Color.FromArgb(90, 124, 108, 242)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            var emptySub = new TextBlock
+            {
+                Text = "Enter 发送 · Shift+Enter 换行",
+                FontFamily = AiFont,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromArgb(90, 167, 160, 196)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                Margin = new Thickness(0, 6, 0, 0)
+            };
+            aiEmptyState = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            aiEmptyState.Children.Add(emptyIcon);
+            aiEmptyState.Children.Add(aiEmptyHint);
+            aiEmptyState.Children.Add(emptySub);
+
+            var chatHost = new Grid { Margin = new Thickness(0, 0, 8, 0) };
+            chatHost.Children.Add(aiChatScroll);
+            chatHost.Children.Add(aiEmptyState);
+            Grid.SetColumn(chatHost, 1);
+            body.Children.Add(chatHost);
+
+            Grid.SetRow(body, 1);
+            layout.Children.Add(body);
+
+            // ---------------------------------------------------------- 底栏
+            var footer = new Grid { MinHeight = 36, Margin = new Thickness(AiSidebarWidth + 4, 0, 14, 10) };
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var inputHost = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(18, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(18),
+                Padding = new Thickness(12, 4, 12, 4),
+                Margin = new Thickness(6, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var inputGrid = new Grid();
+            aiInput = new TextBox
+            {
+                AcceptsReturn = true,
+                AcceptsTab = false,
+                TextWrapping = TextWrapping.Wrap,
+                MinHeight = 28,
+                MaxHeight = 92,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                FontFamily = AiFont,
+                FontSize = 13,
+                Foreground = new SolidColorBrush(AiTextColor),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                CaretBrush = new SolidColorBrush(AiAccentColor)
+            };
+            var placeholder = new TextBlock
+            {
+                Text = "输入你的问题…",
+                FontFamily = AiFont,
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Color.FromArgb(110, 167, 160, 196)),
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            aiInput.TextChanged += delegate
+            {
+                placeholder.Visibility = aiInput.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            };
+            // 输入法开着的时候，所有按键都以 Key.ImeProcessed 到达（h / i / Enter 都一样），
+            // 所以不能"看到 ImeProcessed 就返回"，否则回车永远发不出去。
+            // 正确做法：取真实按键（ImeProcessedKey），再用组词状态区分"选词回车"和"发送回车"。
+            TextCompositionManager.AddPreviewTextInputStartHandler(aiInput, delegate(object sender, TextCompositionEventArgs e)
+            {
+                aiImeComposing = true;
+            });
+            TextCompositionManager.AddPreviewTextInputUpdateHandler(aiInput, delegate(object sender, TextCompositionEventArgs e)
+            {
+                if (e.TextComposition == null || e.TextComposition.CompositionText.Length == 0) aiImeComposing = false;
+            });
+            TextCompositionManager.AddPreviewTextInputHandler(aiInput, delegate(object sender, TextCompositionEventArgs e)
+            {
+                aiImeComposing = false;
+            });
+
+            aiInput.PreviewKeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                Key key = e.Key == Key.ImeProcessed ? e.ImeProcessedKey : e.Key;
+                if (key != Key.Enter || !e.IsDown) return;
+                if (e.Key == Key.ImeProcessed && aiImeComposing) return;   // 这一下回车是输入法选词，放行
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) return; // Shift+Enter 换行
+                e.Handled = true;
+                SubmitAiInput();
+            };
+            inputGrid.Children.Add(aiInput);
+            inputGrid.Children.Add(placeholder);
+            inputHost.Child = inputGrid;
+
+            // 聚焦态：边框亮一点，像一个"正在输入"的框
+            aiInput.GotFocus += delegate
+            {
+                inputHost.BorderBrush = new SolidColorBrush(Color.FromArgb(130, 124, 108, 242));
+                inputHost.Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255));
+            };
+            aiInput.LostFocus += delegate
+            {
+                inputHost.BorderBrush = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255));
+                inputHost.Background = new SolidColorBrush(Color.FromArgb(18, 255, 255, 255));
+            };
+            Grid.SetColumn(inputHost, 0);
+            footer.Children.Add(inputHost);
+
+            aiChipButton = BuildAiChipButton();
+            Grid.SetColumn(aiChipButton, 1);
+            footer.Children.Add(aiChipButton);
+
+            aiSendButton = BuildAiSendButton();
+            Grid.SetColumn(aiSendButton, 2);
+            footer.Children.Add(aiSendButton);
+
+            var footerWrap = new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromArgb(14, 255, 255, 255)),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(0, 6, 0, 0),
+                Child = footer
+            };
+            Grid.SetRow(footerWrap, 2);
+            layout.Children.Add(footerWrap);
+
+            // ---------------------------------------------------------- 浮层
+            aiChipPopup = BuildAiChipPopup();
+            aiAddSheet = BuildAiAddSheet();
+
+            shell.Children.Add(layout);
+            shell.Children.Add(aiChipPopup);
+            shell.Children.Add(aiAddSheet);
+
+            shell.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (!aiChipOpen) return;
+                if (aiChipButton != null && aiChipButton.IsMouseOver) return;
+                if (aiChipPopup != null && aiChipPopup.IsMouseOver) return;
+                if (aiAddSheet != null && aiAddSheet.Visibility == Visibility.Visible && aiAddSheet.IsMouseOver) return;
+                CloseAiChip();
+                e.Handled = true;
+            };
+
+            var panelBorder = new Border
+            {
+                Width = AiPanelWidth,
+                Height = AiPanelHeight,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, AiPanelTop, 0, 0),
+                CornerRadius = new CornerRadius(30),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(52, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Background = new LinearGradientBrush(
+                    Color.FromArgb(250, 38, 44, 51),
+                    Color.FromArgb(248, 27, 33, 41),
+                    new Point(0, 0), new Point(0, 1)),
+                Effect = new DropShadowEffect { BlurRadius = 34, ShadowDepth = 10, Opacity = 0.4 },
+                Child = shell,
+                Visibility = Visibility.Collapsed
+            };
+            // 聊天区、历史列表、输入框的滚动条统一换成 8px 细条，去掉默认的白色滑块和箭头按钮
+            panelBorder.Resources[typeof(ScrollBar)] = BuildAiScrollBarStyle();
+            return panelBorder;
+        }
+
+        // WPF 默认滚动条是浅色宽条 + 上下箭头，在深色面板里非常扎眼。
+        // 这里只留一条 6px 的圆角滑块，悬停和拖动时变亮，轨道完全透明。
+        static Style BuildAiScrollBarStyle()
+        {
+            const string xaml =
+                "<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' " +
+                "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='ScrollBar'>" +
+                "<Setter Property='Width' Value='8'/>" +
+                "<Setter Property='MinWidth' Value='8'/>" +
+                "<Setter Property='Background' Value='Transparent'/>" +
+                "<Setter Property='Template'><Setter.Value>" +
+                "<ControlTemplate TargetType='ScrollBar'>" +
+                "<Grid Background='Transparent'>" +
+                "<Track x:Name='PART_Track' Orientation='Vertical' IsDirectionReversed='True'>" +
+                "<Track.Thumb>" +
+                "<Thumb Width='6' HorizontalAlignment='Center'>" +
+                "<Thumb.Template><ControlTemplate TargetType='Thumb'>" +
+                "<Border x:Name='bar' CornerRadius='3' Background='#2EFFFFFF'/>" +
+                "<ControlTemplate.Triggers>" +
+                "<Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bar' Property='Background' Value='#66FFFFFF'/></Trigger>" +
+                "<Trigger Property='IsDragging' Value='True'><Setter TargetName='bar' Property='Background' Value='#A0FFFFFF'/></Trigger>" +
+                "</ControlTemplate.Triggers>" +
+                "</ControlTemplate></Thumb.Template>" +
+                "</Thumb>" +
+                "</Track.Thumb>" +
+                "</Track>" +
+                "</Grid>" +
+                "</ControlTemplate>" +
+                "</Setter.Value></Setter>" +
+                "</Style>";
+            return (Style)XamlReader.Parse(xaml);
+        }
+
+        StackPanel BuildAiOrbRow()
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            aiOrbs = new Border[2];
+            aiOrbs[0] = BuildAiOrb(0, "DeepSeek 网页版", Color.FromRgb(77, 107, 254), Color.FromRgb(138, 180, 255), "D");
+            aiOrbs[1] = BuildAiOrb(1, "豆包网页版", Color.FromRgb(58, 214, 169), Color.FromRgb(14, 165, 233), "豆");
+            row.Children.Add(aiOrbs[0]);
+            row.Children.Add(aiOrbs[1]);
+            return row;
+        }
+
+        Border BuildAiOrb(int index, string name, Color from, Color to, string glyph)
+        {
+            string id = aiOrbIds[index];
+            var orb = new Border
+            {
+                Width = 22,
+                Height = 22,
+                CornerRadius = new CornerRadius(11),
+                Margin = new Thickness(8, 0, 0, 0),
+                Cursor = Cursors.Hand,
+                ToolTip = name,
+                Background = new LinearGradientBrush(from, to, new Point(0, 0), new Point(1, 1)),
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255))
+            };
+            orb.Child = new TextBlock
+            {
+                Text = glyph,
+                FontFamily = AiFont,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            orb.MouseLeftButtonUp += delegate { SetAiProvider(id); };
+            return orb;
+        }
+
+        Border BuildAiChipButton()
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            aiModelChipText = new TextBlock
+            {
+                Text = aiModelLabel,
+                FontFamily = AiFont,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(AiTextColor),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            row.Children.Add(aiModelChipText);
+            row.Children.Add(new TextBlock
+            {
+                Text = "⌄",
+                FontFamily = AiFont,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(AiMutedColor),
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+            var chip = new Border
+            {
+                Height = 26,
+                CornerRadius = new CornerRadius(13),
+                Background = new SolidColorBrush(Color.FromArgb(16, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(10, 0, 8, 0),
+                Margin = new Thickness(0, 0, 8, 0),
+                Cursor = Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = row
+            };
+            chip.MouseLeftButtonUp += delegate { ToggleAiChip(); };
+            return chip;
+        }
+
+        Button BuildAiSendButton()
+        {
+            var button = new Button
+            {
+                Width = 76,
+                Height = 32,
+                FontSize = 12,
+                FontFamily = AiFont,
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand,
+                Focusable = false,
+                VerticalAlignment = VerticalAlignment.Center,
+                Content = "发送",
+                Background = new LinearGradientBrush(
+                    Color.FromRgb(124, 108, 242), Color.FromRgb(94, 82, 196),
+                    new Point(0, 0), new Point(0, 1))
+            };
+            button.Template = (ControlTemplate)XamlReader.Parse(
+                "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
+                "<Border x:Name='bg' Background='{TemplateBinding Background}' CornerRadius='16'>" +
+                "<ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center'/></Border>" +
+                "<ControlTemplate.Triggers>" +
+                "<Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bg' Property='Opacity' Value='0.86'/></Trigger>" +
+                "</ControlTemplate.Triggers></ControlTemplate>");
+            button.Click += delegate
+            {
+                if (aiStreaming) StopAiStream();
+                else SubmitAiInput();
+            };
+            return button;
+        }
+
+        Button AiGhostButton(string glyph)
+        {
+            var button = new Button
+            {
+                Content = glyph,
+                Width = 22,
+                Height = 22,
+                FontSize = 13,
+                FontFamily = AiFont,
+                Foreground = new SolidColorBrush(Color.FromRgb(217, 210, 255)),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand,
+                Focusable = false
+            };
+            button.Template = (ControlTemplate)XamlReader.Parse(
+                "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
+                "<Border x:Name='bg' Background='{TemplateBinding Background}' CornerRadius='8'>" +
+                "<ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center'/></Border>" +
+                "<ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'>" +
+                "<Setter TargetName='bg' Property='Background' Value='#33FFFFFF'/></Trigger></ControlTemplate.Triggers></ControlTemplate>");
+            return button;
+        }
+
+        Border BuildAiMenuRow(string label, out TextBlock valueText, Action click)
+        {
+            var grid = new Grid { Height = 34 };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var name = new TextBlock
+            {
+                Text = label,
+                FontFamily = AiFont,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(AiMutedColor),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0)
+            };
+            valueText = new TextBlock
+            {
+                Text = "",
+                FontFamily = AiFont,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(AiTextColor),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            Grid.SetColumn(valueText, 1);
+            grid.Children.Add(name);
+            grid.Children.Add(valueText);
+
+            var row = new Border
+            {
+                Child = grid,
+                CornerRadius = new CornerRadius(8),
+                Cursor = Cursors.Hand,
+                Background = Brushes.Transparent,
+                Tag = "ai-popup"
+            };
+            row.MouseLeftButtonUp += delegate { click(); };
+            return row;
+        }
+
+        Border BuildAiChipPopup()
+        {
+            var stack = new StackPanel();
+
+            var modelRow = BuildAiMenuRow("模型", out aiModelValueText, delegate { ToggleAiModelOptions(); });
+            stack.Children.Add(modelRow);
+
+            aiModelOptions = new Border { Visibility = Visibility.Collapsed, Margin = new Thickness(6, 0, 6, 2) };
+            var optionStack = new StackPanel();
+            optionStack.Children.Add(BuildAiModelOption("deepseek", "DeepSeek 网页版"));
+            optionStack.Children.Add(BuildAiModelOption("doubao", "豆包网页版"));
+            aiModelOptions.Child = optionStack;
+            stack.Children.Add(aiModelOptions);
+
+            stack.Children.Add(BuildAiMenuRow("推理等级", out aiReasoningValueText, delegate { CycleAiReasoning(); }));
+            stack.Children.Add(new Border
+            {
+                Height = 1,
+                Margin = new Thickness(8, 4, 8, 4),
+                Background = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255))
+            });
+            TextBlock addRowValue;
+            stack.Children.Add(BuildAiMenuRow("＋ 加入模型", out addRowValue, delegate { OpenAiAddSheet(); }));
+
+            var popup = new Border
+            {
+                Width = 240,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 98, 52),
+                CornerRadius = new CornerRadius(12),
+                Background = new SolidColorBrush(Color.FromRgb(32, 37, 45)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(6),
+                Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 6, Opacity = 0.45 },
+                Visibility = Visibility.Collapsed,
+                Child = stack
+            };
+            return popup;
+        }
+
+        Border BuildAiModelOption(string id, string label)
+        {
+            var row = new Border
+            {
+                Height = 28,
+                CornerRadius = new CornerRadius(6),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Tag = "ai-popup",
+                Child = new TextBlock
+                {
+                    Text = label,
+                    FontFamily = AiFont,
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(AiTextColor),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 0, 8, 0)
+                }
+            };
+            row.MouseLeftButtonUp += delegate
+            {
+                SetAiProvider(id);
+                CloseAiChip();
+            };
+            return row;
+        }
+
+        Border BuildAiAddSheet()
+        {
+            var card = new Border
+            {
+                Width = 300,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                CornerRadius = new CornerRadius(14),
+                Background = new SolidColorBrush(Color.FromRgb(32, 37, 45)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(18, 16, 18, 14),
+                Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 8, Opacity = 0.45 }
+            };
+
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = "加入模型",
+                FontFamily = AiFont,
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(AiTextColor)
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = "这一阶段只做界面，保存后不会真的调用。",
+                FontFamily = AiFont,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(AiMutedColor),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 10)
+            });
+
+            stack.Children.Add(AiFieldLabel("模型名称"));
+            aiAddNameBox = AiFieldBox();
+            stack.Children.Add(aiAddNameBox);
+
+            stack.Children.Add(AiFieldLabel("接口地址"));
+            aiAddEndpointBox = AiFieldBox();
+            stack.Children.Add(aiAddEndpointBox);
+
+            stack.Children.Add(AiFieldLabel("Key"));
+            aiAddKeyBox = AiFieldBox();
+            stack.Children.Add(aiAddKeyBox);
+
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
+            var cancel = ToolButton("取消", 10);
+            cancel.Click += delegate { CloseAiAddSheet(); };
+            var save = ToolButton("保存", 10);
+            save.Click += delegate { ConfirmAiAddModel(); };
+            buttons.Children.Add(cancel);
+            buttons.Children.Add(save);
+            stack.Children.Add(buttons);
+
+            card.Child = stack;
+
+            var layer = new Grid();
+            layer.Children.Add(card);
+            layer.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (!card.IsMouseOver) CloseAiAddSheet();
+            };
+
+            return new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(150, 8, 10, 14)),
+                CornerRadius = new CornerRadius(30),
+                Child = layer,
+                Visibility = Visibility.Collapsed
+            };
+        }
+
+        TextBlock AiFieldLabel(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                FontFamily = AiFont,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(AiMutedColor),
+                Margin = new Thickness(0, 2, 0, 2)
+            };
+        }
+
+        TextBox AiFieldBox()
+        {
+            return new TextBox
+            {
+                Height = 28,
+                Margin = new Thickness(0, 2, 0, 8),
+                Padding = new Thickness(8, 0, 8, 0),
+                FontSize = 12,
+                FontFamily = AiFont,
+                Foreground = new SolidColorBrush(AiTextColor),
+                Background = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                CaretBrush = new SolidColorBrush(AiAccentColor)
+            };
+        }
+
+        // ================================================================ 开关与高度
+
+        void InitAiSessions()
+        {
+            aiCurrent = new ChatSession { Id = "session-1", Title = "新对话", Provider = aiProvider };
+            aiSessions.Add(aiCurrent);
+            RenderAiSessions();
+            RenderChat();
+            UpdateAiOrbSelection();
+            UpdateAiChipTexts();
+            UpdateAiSendButton();
+        }
+
+        void OpenAiPanel()
+        {
+            if (aiPanel == null) return;
+            if (aiVisible && expanded && aiPanel.Visibility == Visibility.Visible)
+            {
+                FocusAiInput();
+                return;
+            }
+
+            bool fromImagePanel = expanded;
+            aiVisible = true;
+            if (panel != null) panel.Visibility = Visibility.Collapsed;
+            ApplyAiWindowHeight(true);
+
+            if (fromImagePanel)
+            {
+                // 从图片面板里点球进来：不走胶囊形变，直接淡入
+                aiPanel.Visibility = Visibility.Visible;
+                aiPanel.IsHitTestVisible = true;
+                aiPanel.Opacity = 0;
+                // 关键：上一次收起把内容层（shell）的 Opacity 淡到了 0，
+                // 这条路径必须自己把它淡回来，否则第二次打开只剩一块底色，看着像黑屏。
+                UIElement aiBody = aiPanel.Child as UIElement;
+                if (aiBody != null) Motion.AnimateDouble(aiBody, UIElement.OpacityProperty, 0, 1, 220, Motion.Enter, 40, null);
+                Motion.PopIn(aiPanel, new Point(0.5, 0.15), 0.96, 10, 200, 0, Motion.Drop);
+            }
+            else
+            {
+                SetExpanded(true);
+            }
+
+            FocusAiInput();
+        }
+
+        void CloseAiPanel()
+        {
+            if (!aiVisible) return;
+            if (aiChipOpen) CloseAiChip();
+            CloseAiAddSheet();
+            if (aiStreaming) StopAiStream();
+            if (!expanded)
+            {
+                aiVisible = false;
+                ApplyAiWindowHeight(false);
+                if (aiPanel != null) aiPanel.Visibility = Visibility.Collapsed;
+                return;
+            }
+            SetExpanded(false);
+        }
+
+        void ApplyAiWindowHeight(bool ai)
+        {
+            // 方案 B：窗口在构造时就定好高度，运行时一律不改 Height。
+            // 之前在这里 Height = 260 ↔ 440 来回改，分层窗口 resize 后会出现整块黑屏。
+            if (!ai || aiPanel == null) return;
+            double avail = MaxWindowHeight() - AiPanelTop - 12;
+            aiPanel.Height = Math.Min(AiPanelHeight, Math.Max(300, avail));
+        }
+
+        double MaxWindowHeight()
+        {
+            try
+            {
+                Forms.Screen screen = Forms.Screen.PrimaryScreen;
+                double dpi = DpiScale();
+                return Math.Max(300, screen.WorkingArea.Height / dpi - 4);
+            }
+            catch (Exception) { return AiPanelHeight + AiPanelTop + 12; }
+        }
+
+        void FocusAiInput()
+        {
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                try
+                {
+                    Activate();
+                    if (aiInput == null) return;
+                    Keyboard.Focus(aiInput);
+                    aiInput.CaretIndex = aiInput.Text.Length;
+                }
+                catch (Exception) { }
+            }), DispatcherPriority.Input);
+        }
+
+        // ================================================================ 左栏会话
+
+        void NewAiChat()
+        {
+            if (aiStreaming) StopAiStream();
+            if (aiCurrent != null && aiCurrent.Messages.Count == 0)
+            {
+                FocusAiInput();
+                return;
+            }
+            var session = new ChatSession
+            {
+                Id = "session-" + (aiSessions.Count + 1),
+                Title = "新对话",
+                Provider = aiProvider
+            };
+            aiSessions.Add(session);
+            aiCurrent = session;
+            RenderAiSessions();
+            RenderChat();
+            FocusAiInput();
+        }
+
+        void SwitchAiSession(ChatSession session)
+        {
+            if (session == null || session == aiCurrent) return;
+            if (aiStreaming) StopAiStream();
+            aiCurrent = session;
+            if (!string.IsNullOrEmpty(session.Provider)) SetAiProviderQuiet(session.Provider);
+            RenderAiSessions();
+            RenderChat();
+        }
+
+        void RenderAiSessions()
+        {
+            if (aiSessionList == null) return;
+            aiSessionList.Children.Clear();
+            for (int i = 0; i < aiSessions.Count; i++)
+            {
+                ChatSession session = aiSessions[i];
+                bool active = session == aiCurrent;
+
+                // 当前会话用左侧 3px 强调条表示，而不是整块高亮底色——安静一点
+                var row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(11) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.Children.Add(new Border
+                {
+                    Width = 3,
+                    Height = 14,
+                    CornerRadius = new CornerRadius(1.5),
+                    Background = new SolidColorBrush(AiAccentColor),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Visibility = active ? Visibility.Visible : Visibility.Collapsed
+                });
+                var label = new TextBlock
+                {
+                    Text = session.Title,
+                    FontFamily = AiFont,
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(active ? AiTextColor : AiMutedColor),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(label, 1);
+                row.Children.Add(label);
+
+                var item = new Border
+                {
+                    Height = 32,
+                    CornerRadius = new CornerRadius(8),
+                    Margin = new Thickness(0, 2, 0, 2),
+                    Padding = new Thickness(0, 0, 8, 0),
+                    Cursor = Cursors.Hand,
+                    Background = active ? new SolidColorBrush(Color.FromArgb(26, 124, 108, 242)) : Brushes.Transparent,
+                    Child = row
+                };
+                ChatSession captured = session;
+                item.MouseEnter += delegate
+                {
+                    if (!active) item.Background = new SolidColorBrush(Color.FromArgb(14, 255, 255, 255));
+                };
+                item.MouseLeave += delegate
+                {
+                    if (!active) item.Background = Brushes.Transparent;
+                };
+                item.MouseLeftButtonUp += delegate { SwitchAiSession(captured); };
+                aiSessionList.Children.Add(item);
+            }
+        }
+
+        // ================================================================ 渲染
+
+        void RenderChat()
+        {
+            if (aiMessageList == null) return;
+            aiMessageList.Children.Clear();
+            int count = aiCurrent == null ? 0 : aiCurrent.Messages.Count;
+            for (int i = 0; i < count; i++)
+            {
+                aiMessageList.Children.Add(BuildBubble(aiCurrent.Messages[i]));
+            }
+            if (aiEmptyState != null)
+            {
+                aiEmptyState.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+            ScrollAiToEnd();
+        }
+
+        Border BuildBubble(ChatMessage message)
+        {
+            bool user = message.Role == ChatRole.User;
+            var body = new StackPanel();
+            message.Body = body;
+            RenderMessageContent(message);
+
+            var outer = new StackPanel();
+            outer.Children.Add(body);
+            if (!user && !message.Streaming) outer.Children.Add(BuildMessageFooter(message));
+
+            var bubble = new Border
+            {
+                MaxWidth = AiBubbleMaxWidth,
+                CornerRadius = new CornerRadius(16),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 5, 0, 5),
+                HorizontalAlignment = user ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+                Background = user
+                    ? (Brush)new LinearGradientBrush(Color.FromRgb(124, 108, 242), Color.FromRgb(94, 82, 196), new Point(0, 0), new Point(1, 1))
+                    : new SolidColorBrush(AiBubbleColor),
+                BorderBrush = new SolidColorBrush(user
+                    ? Color.FromArgb(64, 255, 255, 255)
+                    : Color.FromArgb(34, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Child = outer
+            };
+            message.Bubble = bubble;
+            return bubble;
+        }
+
+        FrameworkElement BuildMessageFooter(ChatMessage message)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0) };
+            if (message.Failed)
+            {
+                var retry = ToolButton("重试", 8);
+                retry.Height = 22;
+                retry.FontSize = 11;
+                retry.Margin = new Thickness(0, 0, 6, 0);
+                retry.Click += delegate { RetryAiMessage(message); };
+                row.Children.Add(retry);
+            }
+            if (!string.IsNullOrEmpty(message.Text))
+            {
+                var copy = ToolButton("复制", 8);
+                copy.Height = 22;
+                copy.FontSize = 11;
+                copy.Click += delegate { SafeCopy(message.Text); };
+                row.Children.Add(copy);
+            }
+            return row;
+        }
+
+        void RenderMessageContent(ChatMessage message)
+        {
+            if (message == null || message.Body == null) return;
+            bool user = message.Role == ChatRole.User;
+            message.Body.Children.Clear();
+
+            string text = message.Text == null ? "" : message.Text;
+            string[] parts = text.Split(new string[] { "```" }, StringSplitOptions.None);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                string part = parts[i];
+                if (part.Length == 0) continue;
+                if (i % 2 == 1)
+                {
+                    message.Body.Children.Add(BuildCodeBlock(part));
+                }
+                else
+                {
+                    message.Body.Children.Add(new TextBlock
+                    {
+                        Text = part,
+                        FontFamily = AiFont,
+                        FontSize = 13,
+                        LineHeight = 21,
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = user ? Brushes.White : new SolidColorBrush(AiTextColor)
+                    });
+                }
+            }
+        }
+
+        FrameworkElement BuildCodeBlock(string raw)
+        {
+            string code = raw;
+            if (code.StartsWith("\r\n")) code = code.Substring(2);
+            else if (code.StartsWith("\n")) code = code.Substring(1);
+            if (code.EndsWith("\r\n")) code = code.Substring(0, code.Length - 2);
+            else if (code.EndsWith("\n")) code = code.Substring(0, code.Length - 1);
+
+            return new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(110, 12, 15, 20)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(26, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10, 8, 10, 8),
+                Margin = new Thickness(0, 4, 0, 4),
+                Child = new TextBlock
+                {
+                    Text = code,
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromRgb(214, 218, 230)),
+                    TextWrapping = TextWrapping.Wrap
+                }
+            };
+        }
+
+        void ScrollAiToEnd()
+        {
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                try { if (aiChatScroll != null) aiChatScroll.ScrollToEnd(); }
+                catch (Exception) { }
+            }), DispatcherPriority.Background);
+        }
+
+        // ================================================================ 发送 / 流式
+
+        void SubmitAiInput()
+        {
+            if (aiStreaming || !aiVisible || aiInput == null) return;
+            string text = aiInput.Text == null ? "" : aiInput.Text.Trim();
+            if (text.Length == 0) return;
+            aiInput.Text = "";
+
+            if (aiCurrent == null) NewAiChat();
+            if (aiCurrent == null) return;
+
+            var userMessage = new ChatMessage { Role = ChatRole.User, Text = text };
+            aiCurrent.Messages.Add(userMessage);
+
+            if (aiCurrent.Title == "新对话")
+            {
+                aiCurrent.Title = text.Length > 12 ? text.Substring(0, 12) + "…" : text;
+                RenderAiSessions();
+            }
+
+            var aiMessage = new ChatMessage { Role = ChatRole.Ai, Text = "", Streaming = true };
+            aiCurrent.Messages.Add(aiMessage);
+            aiLastUserText = text;
+
+            if (aiMessageList != null)
+            {
+                aiMessageList.Children.Add(BuildBubble(userMessage));
+                aiMessageList.Children.Add(BuildBubble(aiMessage));
+            }
+            if (aiEmptyHint != null) aiEmptyHint.Visibility = Visibility.Collapsed;
+            ScrollAiToEnd();
+
+            aiStreaming = true;
+            UpdateAiSendButton();
+            aiCancellation = new CancellationTokenSource();
+            RunAiStream(text, aiMessage, aiCancellation.Token);
+        }
+
+        async void RunAiStream(string prompt, ChatMessage message, CancellationToken token)
+        {
+            try
+            {
+                await aiBackend.SendAsync(prompt, delegate(string delta) { AppendDelta(message, delta); }, token);
+                message.Streaming = false;
+                FinishAiMessage(message, null);
+            }
+            catch (OperationCanceledException)
+            {
+                message.Streaming = false;
+                FinishAiMessage(message, null);
+            }
+            catch (Exception exception)
+            {
+                message.Streaming = false;
+                message.Failed = true;
+                FinishAiMessage(message, exception.Message);
+            }
+            finally
+            {
+                aiStreaming = false;
+                UpdateAiSendButton();
+            }
+        }
+
+        void AppendDelta(ChatMessage message, string delta)
+        {
+            if (string.IsNullOrEmpty(delta)) return;
+            message.Text += delta;
+            RenderMessageContent(message);
+            ScrollAiToEnd();
+        }
+
+        void FinishAiMessage(ChatMessage message, string error)
+        {
+            if (!string.IsNullOrEmpty(error))
+            {
+                message.Text += "\n\n[出错了] " + error;
+                message.Failed = true;
+            }
+            if (aiCurrent != null && aiCurrent.Messages.Contains(message)) RenderChat();
+        }
+
+        void StopAiStream()
+        {
+            if (aiCancellation == null) return;
+            try { aiCancellation.Cancel(); }
+            catch (Exception) { }
+        }
+
+        void RetryAiMessage(ChatMessage message)
+        {
+            if (aiStreaming || message == null || string.IsNullOrEmpty(aiLastUserText)) return;
+            message.Text = "";
+            message.Failed = false;
+            message.Streaming = true;
+            if (aiCurrent != null && !aiCurrent.Messages.Contains(message)) aiCurrent.Messages.Add(message);
+            RenderChat();
+            aiStreaming = true;
+            UpdateAiSendButton();
+            aiCancellation = new CancellationTokenSource();
+            RunAiStream(aiLastUserText, message, aiCancellation.Token);
+        }
+
+        void UpdateAiSendButton()
+        {
+            if (aiSendButton == null) return;
+            aiSendButton.Content = aiStreaming ? "停止" : "发送";
+            aiSendButton.Background = aiStreaming
+                ? new LinearGradientBrush(Color.FromRgb(214, 74, 82), Color.FromRgb(168, 48, 60), new Point(0, 0), new Point(0, 1))
+                : new LinearGradientBrush(Color.FromRgb(124, 108, 242), Color.FromRgb(94, 82, 196), new Point(0, 0), new Point(0, 1));
+        }
+
+        static void SafeCopy(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                try { Clipboard.SetText(text); return; }
+                catch (Exception) { Thread.Sleep(40); }
+            }
+        }
+
+        // ================================================================ 网页版球 / 模型 chip
+
+        void SetAiProvider(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            aiProvider = id;
+            aiModelLabel = id == "doubao" ? "豆包网页版" : "DeepSeek 网页版";
+            if (aiCurrent != null) aiCurrent.Provider = id;
+            UpdateAiOrbSelection();
+            UpdateAiChipTexts();
+            if (aiChipOpen) CloseAiChip();
+        }
+
+        void SetAiProviderQuiet(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            aiProvider = id;
+            aiModelLabel = id == "doubao" ? "豆包网页版" : "DeepSeek 网页版";
+            UpdateAiOrbSelection();
+            UpdateAiChipTexts();
+        }
+
+        void UpdateAiOrbSelection()
+        {
+            if (aiOrbs == null) return;
+            for (int i = 0; i < aiOrbs.Length; i++)
+            {
+                Border orb = aiOrbs[i];
+                if (orb == null) continue;
+                bool active = aiOrbIds[i] == aiProvider;
+                orb.BorderThickness = new Thickness(active ? 1.6 : 1);
+                orb.BorderBrush = new SolidColorBrush(active
+                    ? AiAccentColor
+                    : Color.FromArgb(60, 255, 255, 255));
+                orb.Effect = active
+                    ? new DropShadowEffect { BlurRadius = 14, ShadowDepth = 0, Opacity = 0.85, Color = AiAccentColor }
+                    : null;
+            }
+        }
+
+        void UpdateAiChipTexts()
+        {
+            if (aiModelChipText != null) aiModelChipText.Text = aiModelLabel;
+            if (aiModelValueText != null) aiModelValueText.Text = aiModelLabel;
+            if (aiReasoningValueText != null) aiReasoningValueText.Text = aiReasoning;
+        }
+
+        void ToggleAiChip()
+        {
+            if (aiChipOpen)
+            {
+                CloseAiChip();
+                return;
+            }
+            aiChipOpen = true;
+            UpdateAiChipTexts();
+            if (aiChipPopup == null) return;
+            aiChipPopup.Visibility = Visibility.Visible;
+            Motion.PopIn(aiChipPopup, new Point(0.5, 1), 0.96, 8, 160, 0, Motion.Enter);
+        }
+
+        void CloseAiChip()
+        {
+            aiChipOpen = false;
+            if (aiModelOptions != null) aiModelOptions.Visibility = Visibility.Collapsed;
+            if (aiChipPopup != null) aiChipPopup.Visibility = Visibility.Collapsed;
+        }
+
+        void ToggleAiModelOptions()
+        {
+            if (aiModelOptions == null) return;
+            aiModelOptions.Visibility = aiModelOptions.Visibility == Visibility.Visible
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+
+        void CycleAiReasoning()
+        {
+            if (aiReasoning == "High") aiReasoning = "Medium";
+            else if (aiReasoning == "Medium") aiReasoning = "Low";
+            else aiReasoning = "High";
+            UpdateAiChipTexts();
+        }
+
+        void OpenAiAddSheet()
+        {
+            CloseAiChip();
+            if (aiAddSheet == null) return;
+            aiAddSheet.Visibility = Visibility.Visible;
+            if (aiAddNameBox != null)
+            {
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    try { Keyboard.Focus(aiAddNameBox); }
+                    catch (Exception) { }
+                }), DispatcherPriority.Input);
+            }
+        }
+
+        void CloseAiAddSheet()
+        {
+            if (aiAddSheet != null) aiAddSheet.Visibility = Visibility.Collapsed;
+        }
+
+        void ConfirmAiAddModel()
+        {
+            string name = aiAddNameBox == null ? "" : aiAddNameBox.Text.Trim();
+            if (aiAddNameBox != null) aiAddNameBox.Text = "";
+            if (aiAddEndpointBox != null) aiAddEndpointBox.Text = "";
+            if (aiAddKeyBox != null) aiAddKeyBox.Text = "";
+            CloseAiAddSheet();
+
+            if (name.Length > 0)
+                ShowToolMessage("加入模型", "「" + name + "」已记在界面上。阶段二接 API 后才真正生效。");
+            else
+                ShowToolMessage("加入模型", "阶段二接 API 后才真正生效，现在只做界面。");
+        }
+    }
+}

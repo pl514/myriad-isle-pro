@@ -417,7 +417,7 @@ namespace IslandShot
 
         void LaunchAiChat()
         {
-            ShowToolMessage("AI 问答", "入口已就位。对话面板的交接包已经写好了，接上来就能用。");
+            OpenAiPanel();
         }
 
         void LaunchMusic()

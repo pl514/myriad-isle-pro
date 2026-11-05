@@ -645,13 +645,27 @@ namespace IslandShot
                         "(function(){try{var out=[];var iw=innerWidth,ih=innerHeight;" +
                         "var els=document.querySelectorAll('div,span,section,aside');" +
                         "for(var j=0;j<els.length;j++){var q=els[j].getBoundingClientRect();" +
-                        "if(q.width<=0||q.width>70||q.height<12)continue;" +
+                        "if(q.width<=0||q.width>200||q.height<12)continue;" +
                         "var gap=Math.round(iw-q.right);if(gap<-2||gap>40)continue;" +
                         "var cls='';try{cls=String(els[j].className||'').slice(0,28);}catch(x){}" +
                         "out.push('t'+Math.round(q.top)+' h'+Math.round(q.height)+' w'+Math.round(q.width)+' gap'+gap+' '+(els[j].tagName||'')+'.'+cls);" +
-                        "if(out.length>=14)break;}" +
+                        "if(out.length>=18)break;}" +
                         "return 'iw'+iw+' :: '+out.join(' || ');}catch(e){return 'err '+e.message;}})()";
                     ExecuteAndLog(dump, "dump");
+
+                    // 播上一条/下一条的按钮已经隐藏，但它的容器还在画黑底：
+                    // 从 .xgplayer-playswitch 往上找第一个"有背景色、宽度≤80"的祖先，把它也藏了。
+                    string strip =
+                        "(function(){try{var sw=document.querySelector('.xgplayer-playswitch');if(!sw)return 'no-switch';" +
+                        "var out=[];var el=sw.parentElement;var d=0;" +
+                        "while(el&&d<6){var cs=getComputedStyle(el);var r=el.getBoundingClientRect();" +
+                        "var cls=String(el.className||'').slice(0,22);" +
+                        "out.push(cls+' w'+Math.round(r.width)+' bg'+cs.backgroundColor);" +
+                        "var opaque=cs.backgroundColor&&cs.backgroundColor!=='rgba(0, 0, 0, 0)'&&cs.backgroundColor!=='transparent';" +
+                        "if(opaque&&r.width<=80&&r.height>20){el.style.display='none';out.push('HID');return out.join(' | ');}" +
+                        "el=el.parentElement;d++;}" +
+                        "return 'none '+out.join(' | ');}catch(e){return 'err '+e.message;}})()";
+                    ExecuteAndLog(strip, "strip");
                 };
                 late.Start();
             }

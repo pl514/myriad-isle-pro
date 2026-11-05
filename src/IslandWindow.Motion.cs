@@ -400,12 +400,13 @@ namespace IslandShot
         {
             if (expanded == value) return;
             expanded = value;
+            FrameworkElement surface = aiVisible && aiPanel != null ? (FrameworkElement)aiPanel : panel;
             if (value)
             {
                 capsule.Visibility = Visibility.Visible;
-                panel.Visibility = Visibility.Visible;
-                panel.IsHitTestVisible = true;
-                SetTab(false);
+                surface.Visibility = Visibility.Visible;
+                surface.IsHitTestVisible = true;
+                if (!aiVisible) SetTab(false);
                 if (!quietExpand)
                 {
                     Activate();
@@ -414,54 +415,77 @@ namespace IslandShot
 
                 // 胶囊 → 面板：面板从“胶囊大小”长到全尺寸，起点正好盖在胶囊那一格，
                 // 所以看到的是胶囊自己被拉大成面板，而不是凭空冒出一块新面板。
-                Motion.Prepare(panel, PanelMorphOrigin);
-                ScaleTransform panelScale = Motion.ScaleOf(panel, PanelMorphOrigin);
-                TranslateTransform panelMove = Motion.MoveOf(panel);
+                // AI 面板同理：surface 换成 aiPanel，形变起点按它自己的宽高算。
+                Motion.Prepare(surface, PanelMorphOrigin);
+                ScaleTransform panelScale = Motion.ScaleOf(surface, PanelMorphOrigin);
+                TranslateTransform panelMove = Motion.MoveOf(surface);
                 if (panelScale.ScaleX >= 0.999 && panelScale.ScaleY >= 0.999)
                 {
                     // 首次展开（或上一次收起没走完）：先把形变起点摆好，第一帧不会闪一下全尺寸。
-                    panelScale.ScaleX = CapsuleWidthRatio();
-                    panelScale.ScaleY = CapsuleHeightRatio();
-                    panelMove.Y = -panel.Margin.Top;
+                    panelScale.ScaleX = CapsuleWidthRatio(surface);
+                    panelScale.ScaleY = CapsuleHeightRatio(surface);
+                    panelMove.Y = -surface.Margin.Top;
                 }
 
                 Motion.AnimateDouble(panelScale, ScaleTransform.ScaleXProperty, panelScale.ScaleX, 1, 420, Motion.Enter, 0, null);
                 Motion.AnimateDouble(panelScale, ScaleTransform.ScaleYProperty, panelScale.ScaleY, 1, 420, Motion.Enter, 0, null);
                 Motion.AnimateDouble(panelMove, TranslateTransform.YProperty, panelMove.Y, 0, 420, Motion.Enter, 0, null);
-                Motion.AnimateDouble(panel, UIElement.OpacityProperty, 0, 1, 150, Motion.Enter, 0, null);
+                Motion.AnimateDouble(surface, UIElement.OpacityProperty, 0, 1, 150, Motion.Enter, 0, null);
 
-                UIElement body = panel.Child as UIElement;
+                Border surfaceBorder = surface as Border;
+                UIElement body = surfaceBorder == null ? null : surfaceBorder.Child as UIElement;
                 if (body != null) Motion.AnimateDouble(body, UIElement.OpacityProperty, 0, 1, 260, Motion.Enter, 120, null);
 
-                RevealCards();
+                if (!aiVisible) RevealCards();
                 CapsuleAway();
             }
             else
             {
                 StopGlides();
                 cardSerial = 0;
-                panel.IsHitTestVisible = false;
+                surface.IsHitTestVisible = false;
 
                 // 面板 → 胶囊：缩回胶囊大小再消失，胶囊在最后一段淡入并轻微回弹。
-                Motion.Prepare(panel, PanelMorphOrigin);
-                ScaleTransform panelScale = Motion.ScaleOf(panel, PanelMorphOrigin);
-                TranslateTransform panelMove = Motion.MoveOf(panel);
+                Motion.Prepare(surface, PanelMorphOrigin);
+                ScaleTransform panelScale = Motion.ScaleOf(surface, PanelMorphOrigin);
+                TranslateTransform panelMove = Motion.MoveOf(surface);
 
-                Motion.AnimateDouble(panelScale, ScaleTransform.ScaleXProperty, panelScale.ScaleX, CapsuleWidthRatio(), 300, Motion.Enter, 0, null);
-                Motion.AnimateDouble(panelScale, ScaleTransform.ScaleYProperty, panelScale.ScaleY, CapsuleHeightRatio(), 300, Motion.Enter, 0, null);
-                Motion.AnimateDouble(panelMove, TranslateTransform.YProperty, panelMove.Y, -panel.Margin.Top, 300, Motion.Enter, 0, null);
+                Motion.AnimateDouble(panelScale, ScaleTransform.ScaleXProperty, panelScale.ScaleX, CapsuleWidthRatio(surface), 300, Motion.Enter, 0, null);
+                Motion.AnimateDouble(panelScale, ScaleTransform.ScaleYProperty, panelScale.ScaleY, CapsuleHeightRatio(surface), 300, Motion.Enter, 0, null);
+                Motion.AnimateDouble(panelMove, TranslateTransform.YProperty, panelMove.Y, -surface.Margin.Top, 300, Motion.Enter, 0, null);
 
-                UIElement body = panel.Child as UIElement;
+                Border surfaceBorder = surface as Border;
+                UIElement body = surfaceBorder == null ? null : surfaceBorder.Child as UIElement;
                 if (body != null) Motion.AnimateDouble(body, UIElement.OpacityProperty, body.Opacity, 0, 130, Motion.Exit, 0, null);
 
-                Motion.AnimateDouble(panel, UIElement.OpacityProperty, panel.Opacity, 0, 170, Motion.Exit, 120, delegate
+                Motion.AnimateDouble(surface, UIElement.OpacityProperty, surface.Opacity, 0, 170, Motion.Exit, 120, delegate
                 {
                     if (expanded) return;
-                    panel.Visibility = Visibility.Collapsed;
-                    panel.IsHitTestVisible = true;
+                    surface.Visibility = Visibility.Collapsed;
+                    surface.IsHitTestVisible = true;
+                    if (aiVisible)
+                    {
+                        // AI 收起动画播完，再还原窗口高度：早改会把面板直接切掉一截。
+                        aiVisible = false;
+                        ApplyAiWindowHeight(false);
+                    }
                 });
 
                 CapsuleBack();
+
+                // 兜底：收起动画如果被下一次展开打断，Completed 不会触发，
+                // aiVisible 就会卡在 true（下次点胶囊会直接弹回 AI 面板）。这里超时强制收尾。
+                Motion.Delay(340, delegate
+                {
+                    if (expanded) return;
+                    surface.Visibility = Visibility.Collapsed;
+                    surface.IsHitTestVisible = true;
+                    if (aiVisible)
+                    {
+                        aiVisible = false;
+                        ApplyAiWindowHeight(false);
+                    }
+                });
             }
         }
 
@@ -712,18 +736,18 @@ namespace IslandShot
         }
 
         // 胶囊在面板坐标系里的相对尺寸：面板缩到这两个比例时，正好盖住胶囊那一格。
-        double CapsuleWidthRatio()
+        double CapsuleWidthRatio(FrameworkElement surface)
         {
-            double panelWidth = panel.Width > 1 ? panel.Width : 960;
-            double capsuleWidth = capsule.Width > 1 ? capsule.Width : 220;
-            return capsuleWidth / panelWidth;
+            double hostWidth = surface != null && surface.Width > 1 ? surface.Width : 960;
+            double capsuleWidth = capsule.Width > 1 ? capsule.Width : 148;
+            return capsuleWidth / hostWidth;
         }
 
-        double CapsuleHeightRatio()
+        double CapsuleHeightRatio(FrameworkElement surface)
         {
-            double panelHeight = panel.Height > 1 ? panel.Height : 236;
-            double capsuleHeight = capsule.Height > 1 ? capsule.Height : 41;
-            return capsuleHeight / panelHeight;
+            double hostHeight = surface != null && surface.Height > 1 ? surface.Height : 236;
+            double capsuleHeight = capsule.Height > 1 ? capsule.Height : 37;
+            return capsuleHeight / hostHeight;
         }
 
         void RevealCards()

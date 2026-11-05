@@ -88,7 +88,10 @@ namespace IslandShot
         public IslandWindow()
         {
             Width = 1000;
-            Height = 260;
+            // 方案 B（见交接包 §3）：窗口高度固定，运行时不再 resize。
+            // 分层透明窗口改高度会让合成表面跟不上，表现为整块黑屏。
+            // 多出来的部分是全透明像素，鼠标点击照常穿透到桌面。
+            Height = AiPanelHeight + AiPanelTop + 12;
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
             AllowsTransparency = true;
@@ -113,10 +116,13 @@ namespace IslandShot
             var root = new Grid();
             capsule = BuildCapsule();
             panel = BuildPanel();
+            aiPanel = BuildAiPanel();
             SetTab(false);
             RenderTextHistory();
+            InitAiSessions();
             root.Children.Add(capsule);
             root.Children.Add(panel);
+            root.Children.Add(aiPanel);
             Content = root;
 
             AttachCapsuleGestures();
@@ -125,17 +131,21 @@ namespace IslandShot
             {
                 if (!expanded) return;
                 if (panel.IsMouseOver) return;
+                if (aiPanel != null && aiPanel.IsMouseOver) return;
+                if (aiStreaming) return;
                 if (IsInteractive(e.OriginalSource)) return;
+                if (aiChipOpen) CloseAiChip();
                 CollapseLater();
                 e.Handled = true;
             };
             Deactivated += delegate
             {
-                if (expanded && !capturing && !suppressDeactivate && !dragOut) SetExpanded(false);
+                if (expanded && !aiStreaming && !capturing && !suppressDeactivate && !dragOut) SetExpanded(false);
             };
             PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs e)
             {
                 if (!expanded) return;
+                if (aiVisible) return;   // 聊天区自己滚，别被图片面板的平滑滚动接管
                 if (showingText && textScroller != null)
                 {
                     GlideText(-e.Delta);
@@ -186,7 +196,7 @@ namespace IslandShot
                     {
                         Dispatcher.BeginInvoke(new Action(delegate
                         {
-                            if (expanded && !dragOut) SetExpanded(false);
+                            if (expanded && !dragOut && !aiStreaming) SetExpanded(false);
                         }));
                     });
                 mouseHook.Start();
@@ -225,6 +235,11 @@ namespace IslandShot
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key != Key.Escape) return;
+                if (aiVisible)
+                {
+                    if (aiChipOpen) { CloseAiChip(); e.Handled = true; return; }
+                    if (aiStreaming) { StopAiStream(); e.Handled = true; return; }
+                }
                 if (expanded) { SetExpanded(false); e.Handled = true; }
             };
         }
@@ -1214,6 +1229,7 @@ namespace IslandShot
             DependencyObject node = source as DependencyObject;
             while (node != null && node != this)
             {
+                if (node == aiPanel) return true;
                 if (node is System.Windows.Controls.Primitives.ButtonBase) return true;
                 Border border = node as Border;
                 if (border != null && border.Tag is string) return true;
@@ -1224,9 +1240,9 @@ namespace IslandShot
             return false;
         }
 
-        // Pro 版和标准版 Capsule image 可以同时运行：胶囊默认向右错开一点，
-        // 否则两个应用的胶囊会叠在屏幕顶部正中。
-        const double CapsuleOffsetX = 150;
+        // 原先为了让 Pro 版和标准版 Capsule image 同时运行不重叠，默认向右错开 150。
+        // 用户要求胶囊/面板居中，改成 0；以后需要并排运行再调回 150。
+        const double CapsuleOffsetX = 0;
 
         void PositionOnScreen()
         {
