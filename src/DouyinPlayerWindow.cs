@@ -529,7 +529,7 @@ namespace IslandShot
                 // mobile 模式：换成手机 UA，让抖音给移动版布局（更接近"手机刷抖音"）
                 string mode = ReadCleanMode();
                 DebugLog("init mode=" + mode);
-                if (mode == "mobile")
+                if (mode == "mobile" || mode == "mweb")
                 {
                     try
                     {
@@ -557,7 +557,10 @@ namespace IslandShot
                     }
                     Dispatcher.BeginInvoke(new Action(CleanLayout), DispatcherPriority.Background);
                 };
-                core.Navigate("https://www.douyin.com/");
+                string startUrl = "https://www.douyin.com/";
+                if (mode == "mweb") startUrl = "https://m.douyin.com/";
+                DebugLog("navigate " + startUrl);
+                core.Navigate(startUrl);
             }
             catch (Exception ex)
             {
@@ -611,6 +614,18 @@ namespace IslandShot
                     + " mode=" + mode);
 
                 if (mode == "off") return;
+
+                if (mode == "mweb")
+                {
+                    // 手机网页版本身就是窄布局，别再跑桌面版那套隐藏与缩放，只去掉滚动条
+                    ExecuteAndLog(
+                        "(function(){try{if(!document.getElementById('dsh-css')){var st=document.createElement('style');" +
+                        "st.id='dsh-css';st.textContent='::-webkit-scrollbar{width:0!important;height:0!important}'+" +
+                        "'html,body{scrollbar-width:none!important;-ms-overflow-style:none!important}';" +
+                        "document.head.appendChild(st);}return 'mweb';}catch(e){return 'err';}})()", "clean");
+                    return;
+                }
+
                 if (mode == "zoom") AutoZoom(0);
                 if (mode == "tight")
                 {
