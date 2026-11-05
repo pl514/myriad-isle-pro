@@ -47,6 +47,7 @@ namespace IslandShot
         TextBox aiInput;
         TextBox aiAddNameBox;
         TextBox aiAddEndpointBox;
+        TextBox aiAddModelBox;
         TextBox aiAddKeyBox;
         TextBlock aiModelChipText;
         TextBlock aiModelValueText;
@@ -64,12 +65,17 @@ namespace IslandShot
         bool aiImeComposing;
 
         CancellationTokenSource aiCancellation;
-        readonly IChatBackend aiBackend = new FakeBackend();
         readonly List<ChatSession> aiSessions = new List<ChatSession>();
         readonly string[] aiOrbIds = new string[] { "deepseek", "doubao" };
         ChatSession aiCurrent;
+
+        // 两条独立的选择：
+        //   aiProvider  = 用哪个「网页版」入口（两个球，阶段三才真正接）
+        //   aiModelId   = 用哪个 API 模型（models.txt 里的一条，阶段二真正发请求用它）
+        List<AiModelConfig> aiModels = new List<AiModelConfig>();
+        string aiModelId = "";
         string aiProvider = "deepseek";
-        string aiModelLabel = "DeepSeek 网页版";
+        string aiModelLabel = "未配置模型";
         string aiReasoning = "High";
         string aiLastUserText = "";
 
@@ -107,8 +113,16 @@ namespace IslandShot
             headerLeft.Children.Add(BuildAiOrbRow());
 
             var headerRight = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            // ← 返回图片面板（不收起窗口）；× 才是收起回胶囊
+            var back = AiGhostButton("←");
+            back.FontSize = 15;
+            back.Margin = new Thickness(0, 0, 4, 0);
+            back.ToolTip = "返回图片面板";
+            back.Click += delegate { BackToImagePanel(); };
+            headerRight.Children.Add(back);
             var close = AiGhostButton("×");
             close.FontSize = 15;
+            close.ToolTip = "收起";
             close.Click += delegate { CloseAiPanel(); };
             headerRight.Children.Add(close);
 
@@ -355,7 +369,6 @@ namespace IslandShot
                     Color.FromArgb(250, 38, 44, 51),
                     Color.FromArgb(248, 27, 33, 41),
                     new Point(0, 0), new Point(0, 1)),
-                Effect = new DropShadowEffect { BlurRadius = 34, ShadowDepth = 10, Opacity = 0.4 },
                 Child = shell,
                 Visibility = Visibility.Collapsed
             };
@@ -581,10 +594,7 @@ namespace IslandShot
             stack.Children.Add(modelRow);
 
             aiModelOptions = new Border { Visibility = Visibility.Collapsed, Margin = new Thickness(6, 0, 6, 2) };
-            var optionStack = new StackPanel();
-            optionStack.Children.Add(BuildAiModelOption("deepseek", "DeepSeek 网页版"));
-            optionStack.Children.Add(BuildAiModelOption("doubao", "豆包网页版"));
-            aiModelOptions.Child = optionStack;
+            aiModelOptions.Child = new StackPanel();
             stack.Children.Add(aiModelOptions);
 
             stack.Children.Add(BuildAiMenuRow("推理等级", out aiReasoningValueText, delegate { CycleAiReasoning(); }));
@@ -615,7 +625,7 @@ namespace IslandShot
             return popup;
         }
 
-        Border BuildAiModelOption(string id, string label)
+        Border BuildAiModelOption(AiModelConfig model)
         {
             var row = new Border
             {
@@ -626,17 +636,19 @@ namespace IslandShot
                 Tag = "ai-popup",
                 Child = new TextBlock
                 {
-                    Text = label,
+                    Text = model.DisplayName(),
                     FontFamily = AiFont,
                     FontSize = 12,
                     Foreground = new SolidColorBrush(AiTextColor),
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(8, 0, 8, 0)
+                    Margin = new Thickness(8, 0, 8, 0),
+                    TextTrimming = TextTrimming.CharacterEllipsis
                 }
             };
+            AiModelConfig captured = model;
             row.MouseLeftButtonUp += delegate
             {
-                SetAiProvider(id);
+                ApplyAiModel(captured);
                 CloseAiChip();
             };
             return row;
@@ -668,7 +680,7 @@ namespace IslandShot
             });
             stack.Children.Add(new TextBlock
             {
-                Text = "这一阶段只做界面，保存后不会真的调用。",
+                Text = "保存后写入 data\\models.txt，Key 用 DPAPI 加密写进 data\\keys.txt。",
                 FontFamily = AiFont,
                 FontSize = 11,
                 Foreground = new SolidColorBrush(AiMutedColor),
@@ -676,15 +688,19 @@ namespace IslandShot
                 Margin = new Thickness(0, 4, 0, 10)
             });
 
-            stack.Children.Add(AiFieldLabel("模型名称"));
+            stack.Children.Add(AiFieldLabel("显示名称（例子：智谱 GLM-4.7-Flash）"));
             aiAddNameBox = AiFieldBox();
             stack.Children.Add(aiAddNameBox);
 
-            stack.Children.Add(AiFieldLabel("接口地址"));
+            stack.Children.Add(AiFieldLabel("接口地址（例子：https://open.bigmodel.cn/api/paas/v4）"));
             aiAddEndpointBox = AiFieldBox();
             stack.Children.Add(aiAddEndpointBox);
 
-            stack.Children.Add(AiFieldLabel("Key"));
+            stack.Children.Add(AiFieldLabel("模型 ID（例子：glm-4.7-flash）"));
+            aiAddModelBox = AiFieldBox();
+            stack.Children.Add(aiAddModelBox);
+
+            stack.Children.Add(AiFieldLabel("API Key（可以留空，之后手改 keys.txt）"));
             aiAddKeyBox = AiFieldBox();
             stack.Children.Add(aiAddKeyBox);
 
@@ -754,8 +770,51 @@ namespace IslandShot
             RenderAiSessions();
             RenderChat();
             UpdateAiOrbSelection();
-            UpdateAiChipTexts();
+            LoadAiModels();
             UpdateAiSendButton();
+        }
+
+        // ---------------------------------------------------------- 模型配置
+
+        void LoadAiModels()
+        {
+            aiModels = AiConfigStore.LoadModels();
+            AiModelConfig model = null;
+            for (int i = 0; i < aiModels.Count; i++)
+            {
+                if (aiModels[i].Id == aiModelId) { model = aiModels[i]; break; }
+            }
+            if (model == null && aiModels.Count > 0) model = aiModels[0];
+            ApplyAiModel(model);
+        }
+
+        AiModelConfig CurrentAiModel()
+        {
+            for (int i = 0; i < aiModels.Count; i++)
+            {
+                if (aiModels[i].Id == aiModelId) return aiModels[i];
+            }
+            return aiModels.Count > 0 ? aiModels[0] : null;
+        }
+
+        void ApplyAiModel(AiModelConfig model)
+        {
+            if (model == null) return;
+            aiModelId = model.Id;
+            aiModelLabel = model.DisplayName();
+            UpdateAiChipTexts();
+            RebuildAiModelOptions();
+        }
+
+        void RebuildAiModelOptions()
+        {
+            if (aiModelOptions == null) return;
+            var stack = new StackPanel();
+            foreach (AiModelConfig model in aiModels)
+            {
+                stack.Children.Add(BuildAiModelOption(model));
+            }
+            aiModelOptions.Child = stack;
         }
 
         void OpenAiPanel()
@@ -769,6 +828,7 @@ namespace IslandShot
 
             bool fromImagePanel = expanded;
             aiVisible = true;
+            EnsureAiShadow();
             if (panel != null) panel.Visibility = Visibility.Collapsed;
             ApplyAiWindowHeight(true);
 
@@ -792,6 +852,53 @@ namespace IslandShot
             FocusAiInput();
         }
 
+        // 返回图片面板：窗口保持展开态，只是把内容从 AI 面板换回图片面板。
+        // 注意不能走 SetExpanded(true)——expanded 已经是 true，会直接 return。
+        void BackToImagePanel()
+        {
+            if (!aiVisible) return;
+            if (aiChipOpen) CloseAiChip();
+            CloseAiAddSheet();
+            if (aiStreaming) StopAiStream();
+
+            aiVisible = false;
+            // 先淡出、再 Collapsed、最后摘掉投影：三步顺序不能乱，
+            // 否则分层窗口会残留 AI 面板的阴影（DropShadowEffect 的缓存）。
+            Motion.Fade(aiPanel, 0, 120, Motion.Exit, 0, delegate
+            {
+                HideAiSurface();
+            });
+
+            if (panel == null) return;
+            panel.Visibility = Visibility.Visible;
+            panel.IsHitTestVisible = true;
+            // 上次收起把面板缩到了胶囊大小，这里要先把形变复位，否则会以极小的尺寸淡入
+            Motion.Prepare(panel, PanelMorphOrigin);
+            ScaleTransform scale = Motion.ScaleOf(panel, PanelMorphOrigin);
+            TranslateTransform move = Motion.MoveOf(panel);
+            scale.ScaleX = 1;
+            scale.ScaleY = 1;
+            move.Y = 0;
+            panel.Opacity = 0;
+            Motion.Fade(panel, 1, 180, Motion.Enter, 60, null);
+        }
+
+        // WPF 的 DropShadowEffect 会缓存元素内容：面板隐藏后那块缓存仍可能被画出来，
+        // 表现为"返回图片面板后，下面残留一条 AI 面板的阴影"。所以隐藏时把投影摘掉。
+        void EnsureAiShadow()
+        {
+            if (aiPanel == null) return;
+            if (aiPanel.Effect == null)
+                aiPanel.Effect = new DropShadowEffect { BlurRadius = 34, ShadowDepth = 10, Opacity = 0.4 };
+        }
+
+        void HideAiSurface()
+        {
+            if (aiPanel == null) return;
+            aiPanel.Visibility = Visibility.Collapsed;
+            aiPanel.Effect = null;
+        }
+
         void CloseAiPanel()
         {
             if (!aiVisible) return;
@@ -802,7 +909,7 @@ namespace IslandShot
             {
                 aiVisible = false;
                 ApplyAiWindowHeight(false);
-                if (aiPanel != null) aiPanel.Visibility = Visibility.Collapsed;
+                HideAiSurface();
                 return;
             }
             SetExpanded(false);
@@ -1117,7 +1224,10 @@ namespace IslandShot
         {
             try
             {
-                await aiBackend.SendAsync(prompt, delegate(string delta) { AppendDelta(message, delta); }, token);
+                // 每次发送前按当前模型解析后端：切换 chip 之后下一条就换服务商了。
+                // 配置不全（没 key / 没地址）时 Resolve 抛"人话"异常，下面统一变成错误气泡。
+                IChatBackend backend = ChatBackends.Resolve(CurrentAiModel());
+                await backend.SendAsync(prompt, delegate(string delta) { AppendDelta(message, delta); }, token);
                 message.Streaming = false;
                 FinishAiMessage(message, null);
             }
@@ -1203,10 +1313,8 @@ namespace IslandShot
         {
             if (string.IsNullOrEmpty(id)) return;
             aiProvider = id;
-            aiModelLabel = id == "doubao" ? "豆包网页版" : "DeepSeek 网页版";
             if (aiCurrent != null) aiCurrent.Provider = id;
             UpdateAiOrbSelection();
-            UpdateAiChipTexts();
             if (aiChipOpen) CloseAiChip();
         }
 
@@ -1214,9 +1322,7 @@ namespace IslandShot
         {
             if (string.IsNullOrEmpty(id)) return;
             aiProvider = id;
-            aiModelLabel = id == "doubao" ? "豆包网页版" : "DeepSeek 网页版";
             UpdateAiOrbSelection();
-            UpdateAiChipTexts();
         }
 
         void UpdateAiOrbSelection()
@@ -1303,16 +1409,46 @@ namespace IslandShot
 
         void ConfirmAiAddModel()
         {
-            string name = aiAddNameBox == null ? "" : aiAddNameBox.Text.Trim();
+            string label = aiAddNameBox == null ? "" : aiAddNameBox.Text.Trim();
+            string baseUrl = aiAddEndpointBox == null ? "" : aiAddEndpointBox.Text.Trim();
+            string modelId = aiAddModelBox == null ? "" : aiAddModelBox.Text.Trim();
+            string key = aiAddKeyBox == null ? "" : aiAddKeyBox.Text.Trim();
+
+            if (label.Length == 0 || baseUrl.Length == 0 || modelId.Length == 0)
+            {
+                ShowToolMessage("加入模型", "显示名称 / 接口地址 / 模型 ID 三项都要填。");
+                return;
+            }
+
+            var config = new AiModelConfig();
+            config.Id = "m" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            config.Label = label;
+            config.BaseUrl = baseUrl.TrimEnd('/');
+            config.Model = modelId;
+            config.KeyRef = config.Id;
+            config.Vision = false;
+            AiConfigStore.SaveModel(config);
+
+            string hint = "已写入 data\\models.txt。";
+            if (key.Length > 0)
+            {
+                if (AiConfigStore.SaveKey(config.Id, key)) hint += " Key 已加密保存。";
+                else hint += " Key 加密失败，请手改 keys.txt：" + config.Id + "|plain:你的key";
+            }
+            else
+            {
+                hint += " 还没填 Key；要填就手改 keys.txt：" + config.Id + "|plain:你的key";
+            }
+
             if (aiAddNameBox != null) aiAddNameBox.Text = "";
             if (aiAddEndpointBox != null) aiAddEndpointBox.Text = "";
+            if (aiAddModelBox != null) aiAddModelBox.Text = "";
             if (aiAddKeyBox != null) aiAddKeyBox.Text = "";
             CloseAiAddSheet();
 
-            if (name.Length > 0)
-                ShowToolMessage("加入模型", "「" + name + "」已记在界面上。阶段二接 API 后才真正生效。");
-            else
-                ShowToolMessage("加入模型", "阶段二接 API 后才真正生效，现在只做界面。");
+            aiModels = AiConfigStore.LoadModels();
+            ApplyAiModel(config);
+            ShowToolMessage("加入模型", hint);
         }
     }
 }

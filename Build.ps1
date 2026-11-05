@@ -24,6 +24,8 @@ $refs = @(
     "/r:$framework\System.Xaml.dll",
     "/r:System.dll",
     "/r:System.Core.dll",
+    "/r:$framework\System.Net.Http.dll",
+    "/r:$framework\System.Security.dll",
     "/r:System.Drawing.dll",
     "/r:System.Windows.Forms.dll",
     "/r:$webview2\Microsoft.Web.WebView2.Core.dll",

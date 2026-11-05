@@ -461,7 +461,8 @@ namespace IslandShot
                 Motion.AnimateDouble(surface, UIElement.OpacityProperty, surface.Opacity, 0, 170, Motion.Exit, 120, delegate
                 {
                     if (expanded) return;
-                    surface.Visibility = Visibility.Collapsed;
+                    if (surface == aiPanel) HideAiSurface();
+                    else surface.Visibility = Visibility.Collapsed;
                     surface.IsHitTestVisible = true;
                     if (aiVisible)
                     {
@@ -478,7 +479,8 @@ namespace IslandShot
                 Motion.Delay(340, delegate
                 {
                     if (expanded) return;
-                    surface.Visibility = Visibility.Collapsed;
+                    if (surface == aiPanel) HideAiSurface();
+                    else surface.Visibility = Visibility.Collapsed;
                     surface.IsHitTestVisible = true;
                     if (aiVisible)
                     {
