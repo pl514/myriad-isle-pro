@@ -612,6 +612,27 @@ namespace IslandShot
 
                 if (mode == "off") return;
                 if (mode == "zoom") AutoZoom(0);
+                if (mode == "tight")
+                {
+                    // 布局宽 580 = 左边留白 72 + 视频 448 + 右边留白 60。
+                    // 视频只有 77% 宽，右侧那 60px 就是"黑条"。先把左边留白清掉，
+                    // 让布局瘦到 ~508，再重新缩放，视频+右侧图标列就能占满窗口。
+                    ExecuteAndLog(
+                        "(function(){try{var v=document.querySelector('video');if(!v)return 'no-video';" +
+                        "var n=0,el=v.parentElement;while(el&&el!==document.body){" +
+                        "var cs=getComputedStyle(el);" +
+                        "if(parseFloat(cs.paddingLeft)>0){el.style.paddingLeft='0px';n++;}" +
+                        "if(parseFloat(cs.marginLeft)>0){el.style.marginLeft='0px';n++;}" +
+                        "el=el.parentElement;}return 'tight '+n;}catch(e){return 'err '+e.message;}})()", "tight");
+
+                    var zoomLater = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+                    zoomLater.Tick += delegate
+                    {
+                        zoomLater.Stop();
+                        AutoZoom(0);
+                    };
+                    zoomLater.Start();
+                }
 
                 string js =
                     "(function(){try{" +
