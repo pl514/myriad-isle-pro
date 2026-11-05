@@ -4,7 +4,11 @@
 > **v3（同日，按用户手绘批注）**：面板多了三块——**顶栏两个网页版 AI 球 / 左侧会话栏 / 底栏模型 chip 弹层**，
 > 面板宽 760 → 860。**v4（实测收尾）**：窗口改固定高度（改高度会黑屏）、去掉了居中偏移、
 > 补了"第二次打开只剩底色"和"输入法开着时回车失效"两个真坑（§9 P3 / P13）。
-> §2 / §4 / §5 / §6 / §7 / §8 / §9 已全部同步；**开工前必须读完 §9（P1–P13）**。
+> **v6（2026-11-05，由另一个会话复核后修订）**：
+> ① 作废 §2 第 6 条、§7 第 5 条里"窗口高度还原"的说法——方案 B 是固定高度，永远不会还原，见 **§13**；
+> ② §12 的行号已过时，见 §13 的替代读法；
+> ③ 补记一条事实：AI 面板入口在图片面板的球里，**"从胶囊形变"这条路径当前走不到**，见 §13。
+> §2 / §4 / §5 / §6 / §7 / §8 / §9 已全部同步；**开工前必须读完 §9（P1–P15）和 §13**。
 >
 > **一句话**：在胶囊窗口里做一个**原生 WPF** 的 AI 对话面板——点 AI 球 → 面板形变展开 → 输入问题 → 流式回答。
 > 这一阶段**只做界面和假数据**，不接任何真实模型。
@@ -63,7 +67,7 @@ v0.4-no-crop / v0.3-no-white-flash / v0.2-douyin-morph / v0.1-douyin-working
 3. **假后端**（`FakeBackend`）：把固定文本按 20~40ms 一批的节奏流式吐出来；
 4. 流式过程中输入框右侧变成「停止」按钮；
 5. 消息列表：用户气泡靠右、AI 气泡靠左，可滚动、自动滚到底；
-6. `Esc` / 点面板外 / 面板右上 `×` → 收起面板，高度还原；
+6. `Esc` / 点面板外 / 面板右上 `×` → 收起面板；**窗口高度不还原**（方案 B 固定 440，详见 §3 与 §13）；
 7. **顶栏两个「网页版 AI」球**（DeepSeek / 豆包）：只切换"当前用哪个"，球选中态 + chip 文案跟着变；
 8. **左侧会话栏**：「＋ 新对话」+ 历史对话列表，点一下切会话（**内存多会话**，退出即清空）；
 9. **底栏模型 chip**：显示当前模型/推理等级，点开弹层（模型列表 / 推理等级 / ＋加入模型）；
@@ -124,7 +128,7 @@ AI 态 ：窗口 1000×440（AI 面板 860×420 画在上面，位置不变）
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  AI 助手 │ ○ ○                                        [×]    │ 顶栏 40
+│  AI 助手 │ ○ ○                                    ←  ×   │ 顶栏 40
 ├──────────┬───────────────────────────────────────────────────┤
 │ ＋新对话  │                                                   │
 │ ─────────│        ┌─────────────────────────┐                │
@@ -155,6 +159,7 @@ AI 态 ：窗口 1000×440（AI 面板 860×420 画在上面，位置不变）
 | 气泡圆角 | 14，内边距 12×8，最大宽度 86% |
 | 输入框 | 高 34 起、最高 92（`TextWrapping=Wrap` + 自动竖向滚动条），多行 |
 | 网页版球 | 22px，两个，间距 8；在"AI 助手"右边隔 12 的 1px 竖线之后 |
+| 顶栏右侧 | **← 返回图片面板**（不收起窗口，淡出 AI 面板+淡入图片面板）、**× 收起回胶囊**（走 `SetExpanded(false)`）。两个都要：用户明确要求"× 左边加返回键" |
 | 球选中态 | 外圈 1px `#7C6CF2` + 外发光；未选中是半透明白 `#FFFFFF1A` |
 | 模型 chip | 高 26，圆角 13，底 `#FFFFFF0F`，文字 11，右侧一个 ⌄；内容形如 `DeepSeek 网页版` |
 | **滚动条** | **必须自己写样式**：WPF 默认是浅色宽条 + 上下箭头，在深色面板里像一根白条（用户第一眼就指出了）。做法见 §9 P14：8px 轨道透明，滑块 6px / 圆角 3 / `#3AFFFFFF`，悬停变亮 |
@@ -335,7 +340,7 @@ internal sealed class ChatSession
 - [ ] 输入一段中文，回车后逐字出现回答，滚动条自动跟到底
 - [ ] 流式中输入框变成「停止」，点击后立刻停住，已输出的文字保留
 - [ ] `Esc` 第一次停止、第二次收起
-- [ ] 收起后窗口高度**精确**回到 260，胶囊位置不变
+- [x] ~~收起后窗口高度**精确**回到 260~~ → **不适用**：方案 B 是固定高度，永不变（见 §3 / §13）
 - [ ] 再次打开，上一轮对话还在（内存即可）
 - [ ] 面板外的桌面区域点击正常穿透（不挡其它程序）
 - [ ] 抖音球、图片页签、文字页签都**没有被这次改动弄坏**
@@ -743,6 +748,38 @@ static Style BuildAiScrollBarStyle()
 - 模板里**不要放 RepeatButton**，去掉上下箭头和整条轨道；
 - 聊天区容器再给 8px 右外边距，别让滑块贴着面板圆角边框。
 
+### P15　`DropShadowEffect` 会在面板隐藏后留下"阴影残影"（v5 新增）
+
+**症状**：AI 面板 → 点 ← 返回图片面板后，图片面板下方浮着一条**半透明的 AI 面板底栏/代码块**（模糊、约 40% 不透明度）。
+等 3 秒也不消失，所以不是"没刷新"。
+
+**根因**：`DropShadowEffect` 会把元素内容缓存成位图来算阴影；面板 `Visibility = Collapsed` 之后，
+这份缓存仍被画了一次，于是旧内容以"阴影"的形式留在原地。
+
+**验证方法**：把 `aiPanel.Effect` 临时删掉，同样的操作就干净了（我实测确认过）。
+
+**改法**：隐藏时把投影摘掉，显示时再挂回去——投影本身别删，否则面板会变"贴纸"。
+
+```csharp
+void EnsureAiShadow()
+{
+    if (aiPanel == null) return;
+    if (aiPanel.Effect == null)
+        aiPanel.Effect = new DropShadowEffect { BlurRadius = 34, ShadowDepth = 10, Opacity = 0.4 };
+}
+
+void HideAiSurface()
+{
+    if (aiPanel == null) return;
+    aiPanel.Visibility = Visibility.Collapsed;
+    aiPanel.Effect = null;      // 关键：不清缓存就会画出旧内容的阴影
+}
+```
+
+三个隐藏入口都要走 `HideAiSurface()`：`BackToImagePanel`、`CloseAiPanel` 的兜底分支、
+`SetExpandedAnimated(false)` 的收起回调（`if (surface == aiPanel) HideAiSurface();`）。
+`OpenAiPanel` 开头调一次 `EnsureAiShadow()`。
+
 ---
 
 ## 10. 构建与调试
@@ -774,7 +811,56 @@ start "E:\yingyong\deepseekgongzuoqv\IslandShot-pro\build\Capsule image Pro.exe"
 
 ## 12. 给下一个对话的开场
 
-> 读 `E:\yingyong\deepseekgongzuoqv\IslandShot-pro\src\IslandWindow.cs`（窗口结构 87–229、面板 679–838、点外收起 124–131、`IsInteractive` 1212、`PositionOnScreen` 1231）、`IslandWindow.Motion.cs`（`SetExpandedAnimated` 399–466、ratio helper 715–727）、`IslandWindow.Orbs.cs`（工具坞与 `LaunchAiChat` 418）。
-> **然后先读完本文件 §9 的 P1–P13 再动手**——只按 §5 写会撞上输入法回车失效、点输入框自动收起、第二次打开黑屏、弹层一点就收这四个必现问题。
+> 读 `src\IslandWindow.cs`（构造与窗口字段 → `Height = AiPanelHeight + AiPanelTop + 12`；面板构建 → `BuildPanel`；点外收起 → `PreviewMouseLeftButtonUp`；`IsInteractive`；`PositionOnScreen`）、`src\IslandWindow.Motion.cs`（`SetExpandedAnimated`、`CapsuleWidthRatio/HeightRatio`）、`src\IslandWindow.Orbs.cs`（工具坞与 `LaunchAiChat`）。
+> **用符号名搜，别用行号**——这批文件改动频繁，行号早就漂了（见 §13）。
+> **然后先读完本文件 §9 的 P1–P15 再动手**——只按 §5 写会撞上输入法回车失效、点输入框自动收起、第二次打开黑屏、弹层一点就收、滚动条白条这五个必现问题。
 > 按 §5 的三个新文件开工，完工标准看 §7 验收清单（含 v3 的 5 条）。
 > **不要碰抖音相关文件**（`DouyinPlayerWindow.cs` / `IslandWindow.Douyin.cs` / `MorphShellWindow.cs`）。
+
+---
+
+## 13. 复核结论与现状（v6，由另一个会话核对源码后补写）
+
+### 13.1 本阶段的实际完成度
+
+对着源码逐条核对 §7 的结果：
+
+| §7 验收项 | 状态 | 依据 |
+|---|---|---|
+| 点 AI 球打开面板、输入框聚焦 | ✅（形式见 13.3） | `LaunchAiChat()` → `OpenAiPanel()`；`FocusAiInput()` 里 `Keyboard.Focus` + `CaretIndex` |
+| 逐字流式 | ✅ | `FakeBackend` 每批 1~2 字、`Task.Delay(28)` |
+| 流式中变「停止」 | ✅ | `UpdateAiSendButton` / `StopAiStream` |
+| Esc 两级 | ✅ | `IslandWindow.cs` 的 `KeyDown` 先 `CloseAiChip` → `StopAiStream` → `SetExpanded(false)` |
+| 收起后窗口高度回到 260 | ⛔ **不适用** | 方案 B：`Height` 构造时定死 440，运行时不改 |
+| 再次打开对话还在 | ✅ | `aiSessions` + `RenderChat`（内存） |
+| 面板外点击穿透 | ⚠️ 待实测 | 分层窗口按像素 alpha 判定；窗口变高后需人工确认 |
+| 抖音球 / 图片页签 / 文字页签未被弄坏 | ⚠️ 待实测 | 编译通过；需人工回归一次 |
+| v3 的 5 条（球切换 / 会话栏 / chip 弹层 / 加入模型 / 左栏布局） | ⚠️ 待实测 | UI 已实现，无实测记录 |
+
+**结论：前端（阶段一）实质完成，可以验收**；未做的是「落盘」和「真后端」，属于阶段二/三，不算欠账。
+
+### 13.2 三处已修正的文档错误（v6）
+
+1. **§2 第 6 条 / §7 第 5 条**：原写"高度还原到 260"，与 §3 的方案 B 矛盾，已改为"不适用"；
+2. **§12 行号**：已改成按符号名搜索；
+3. **§3 补充**：窗口高度 440 = `AiPanelHeight(420) + AiPanelTop(8) + 12`，代码在 `IslandWindow.cs` 构造函数里，只此一处。
+
+> 上次的教训：**文档里凡是"验收项"和"实现方案"分两节写的，改方案时必须同步改验收**，否则下个会话会去修一个不可能通过的项（重新踩"改高度→黑屏"）。
+
+### 13.3 一条容易误解的事实：形变路径当前走不到
+
+`OpenAiPanel()` 里：
+
+```csharp
+bool fromImagePanel = expanded;   // AI 球在图片面板的顶栏里 → 这里永远是 true
+```
+
+所以实际永远是「淡入 + 0.96 缩放 + 上浮 10px」，**不会**从胶囊形变。要走形变，必须给 AI 一个**不经过图片面板**的入口（右键胶囊 / 胶囊上再挂一个小圆点 / 独立热键）。
+
+这是产品决定，不是 bug。验收时别把"没有形变"当成缺陷。
+
+### 13.4 当前状态
+
+- 编译：通过（仅 `DetachedImageViewerWindow.cs` 有个历史遗留警告 `CS0169`）；
+- 未提交的改动：`docs/AI前端-交接包.md`、`src/IslandWindow.Ai.cs`、`src/IslandWindow.Motion.cs`；
+- 阶段二的工作看 **`docs/AI后端-交接包.md`**。
