@@ -603,11 +603,24 @@ namespace IslandShot
                 if (mode == "zoom") AutoZoom(0);
 
                 string js =
-                    "(function(){try{var hidden=0;var els=document.querySelectorAll('div,aside,nav');" +
+                    "(function(){try{" +
+                    // ① 滚动条宽度归零（不影响滚动，只是不显示）
+                    "if(!document.getElementById('dsh-css')){var st=document.createElement('style');st.id='dsh-css';" +
+                    "st.textContent='::-webkit-scrollbar{width:0!important;height:0!important}'+" +
+                    "'html,body{scrollbar-width:none!important;-ms-overflow-style:none!important}';" +
+                    "document.head.appendChild(st);}" +
+                    // ② 隐藏左侧那条竖长导航
+                    "var nav=0;var els=document.querySelectorAll('div,aside,nav');" +
                     "for(var i=0;i<els.length;i++){var r=els[i].getBoundingClientRect();" +
                     "if(r.height>innerHeight*0.45&&r.width>24&&r.width<180&&r.left<50){" +
-                    "els[i].style.display='none';hidden++;}}" +
-                    "return 'hidden='+hidden;}catch(e){return 'err';}})()";
+                    "els[i].style.display='none';nav++;}}" +
+                    // ③ 隐藏贴右边缘的窄条（上下翻页键所在的那条黑边），点赞那列宽约 50 不受影响
+                    "var right=[];var els2=document.querySelectorAll('div,span');" +
+                    "for(var j=0;j<els2.length;j++){var q=els2[j].getBoundingClientRect();" +
+                    "if(q.width>0&&q.width<=30&&q.height>40&&q.height<innerHeight*0.95&&(innerWidth-q.right)<=8){" +
+                    "var cs=getComputedStyle(els2[j]);if(cs.position!=='static'){" +
+                    "els2[j].style.display='none';right.push(Math.round(q.width)+'x'+Math.round(q.height)+'@'+Math.round(q.top));}}}" +
+                    "return 'nav='+nav+' right='+right.join('|');}catch(e){return 'err '+e.message;}})()";
                 ExecuteAndLog(js, "clean");
             }
             catch (Exception) { }
@@ -658,7 +671,7 @@ namespace IslandShot
             try
             {
                 string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "douyin-clean.txt");
-                if (!File.Exists(path)) return "nav";
+                if (!File.Exists(path)) return "zoom";
                 string text = File.ReadAllText(path).Trim().ToLowerInvariant();
                 return string.IsNullOrEmpty(text) ? "nav" : text;
             }
