@@ -618,7 +618,9 @@ namespace IslandShot
                     // ① 滚动条宽度归零（不影响滚动，只是不显示）
                     "if(!document.getElementById('dsh-css')){var st=document.createElement('style');st.id='dsh-css';" +
                     "st.textContent='::-webkit-scrollbar{width:0!important;height:0!important}'+" +
-                    "'html,body{scrollbar-width:none!important;-ms-overflow-style:none!important}';" +
+                    "'html,body{scrollbar-width:none!important;-ms-overflow-style:none!important}'+" +
+                    // 播放器右侧那条「上一条/下一条」黑条（日志实测：div.xgplayer-playswitch 36x80，距右边 11px）
+                    "'.xgplayer-playswitch,[class*=playswitch]{display:none!important}';" +
                     "document.head.appendChild(st);}" +
                     // ② 隐藏左侧那条竖长导航
                     "var nav=0;var els=document.querySelectorAll('div,aside,nav');" +
