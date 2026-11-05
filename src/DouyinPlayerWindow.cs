@@ -595,6 +595,17 @@ namespace IslandShot
                     "}catch(e){return '{\"err\":1}';}})()";
 
                 ExecuteAndLog(measure, "measure");
+
+                // 探测：右边缘几个高度上，鼠标下压着的是哪些元素（用来精确定位那条黑条）
+                string probe =
+                    "(function(){try{var out=[];var ys=[0.15,0.35,0.55,0.75,0.90];" +
+                    "for(var k=0;k<ys.length;k++){var y=Math.round(innerHeight*ys[k]);" +
+                    "var list=document.elementsFromPoint(innerWidth-6,y)||[];" +
+                    "for(var i=0;i<Math.min(3,list.length);i++){var e=list[i];var r=e.getBoundingClientRect();" +
+                    "var cls='';try{cls=String(e.className||'').slice(0,36);}catch(x){}" +
+                    "out.push(Math.round(r.left)+'/'+Math.round(r.width)+'x'+Math.round(r.height)+' '+(e.tagName||'')+'.'+cls);}}" +
+                    "return out.join(' || ');}catch(e){return 'err';}})()";
+                ExecuteAndLog(probe, "probe");
                 DebugLog("wpf view=" + (int)view.ActualWidth + "x" + (int)view.ActualHeight
                     + " win=" + (int)Width + "x" + (int)Height + " dpi=" + Dpi().ToString("0.00")
                     + " mode=" + mode);
@@ -622,6 +633,25 @@ namespace IslandShot
                     "els2[j].style.display='none';right.push(Math.round(q.width)+'x'+Math.round(q.height)+'@'+Math.round(q.top));}}}" +
                     "return 'nav='+nav+' right='+right.join('|');}catch(e){return 'err '+e.message;}})()";
                 ExecuteAndLog(js, "clean");
+
+                // 缩放稳定后再探测一次：右边缘 40px 内所有窄元素全列出来，不做任何筛选
+                var late = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+                late.Tick += delegate
+                {
+                    late.Stop();
+                    string dump =
+                        "(function(){try{var out=[];var iw=innerWidth,ih=innerHeight;" +
+                        "var els=document.querySelectorAll('div,span,section,aside');" +
+                        "for(var j=0;j<els.length;j++){var q=els[j].getBoundingClientRect();" +
+                        "if(q.width<=0||q.width>70||q.height<12)continue;" +
+                        "var gap=Math.round(iw-q.right);if(gap<-2||gap>40)continue;" +
+                        "var cls='';try{cls=String(els[j].className||'').slice(0,28);}catch(x){}" +
+                        "out.push('t'+Math.round(q.top)+' h'+Math.round(q.height)+' w'+Math.round(q.width)+' gap'+gap+' '+(els[j].tagName||'')+'.'+cls);" +
+                        "if(out.length>=14)break;}" +
+                        "return 'iw'+iw+' :: '+out.join(' || ');}catch(e){return 'err '+e.message;}})()";
+                    ExecuteAndLog(dump, "dump");
+                };
+                late.Start();
             }
             catch (Exception) { }
         }
