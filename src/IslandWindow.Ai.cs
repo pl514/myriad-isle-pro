@@ -48,6 +48,9 @@ namespace IslandShot
         TextBox aiAddNameBox;
         TextBox aiAddEndpointBox;
         TextBox aiAddModelBox;
+        TextBlock aiAddSheetTitle;
+        TextBlock aiAddKeyHint;
+        string aiEditingModelId;
         TextBox aiAddKeyBox;
         TextBlock aiModelChipText;
         TextBlock aiModelValueText;
@@ -604,8 +607,10 @@ namespace IslandShot
                 Margin = new Thickness(8, 4, 8, 4),
                 Background = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255))
             });
+            TextBlock editRowValue;
+            stack.Children.Add(BuildAiMenuRow("编辑当前模型", out editRowValue, delegate { OpenAiModelSheet(CurrentAiModel()); }));
             TextBlock addRowValue;
-            stack.Children.Add(BuildAiMenuRow("＋ 加入模型", out addRowValue, delegate { OpenAiAddSheet(); }));
+            stack.Children.Add(BuildAiMenuRow("＋ 加入模型", out addRowValue, delegate { OpenAiModelSheet(null); }));
 
             var popup = new Border
             {
@@ -651,6 +656,11 @@ namespace IslandShot
                 ApplyAiModel(captured);
                 CloseAiChip();
             };
+            // 右键 = 直接编辑这一条（填/改 Key）
+            row.MouseRightButtonUp += delegate
+            {
+                OpenAiModelSheet(captured);
+            };
             return row;
         }
 
@@ -670,14 +680,15 @@ namespace IslandShot
             };
 
             var stack = new StackPanel();
-            stack.Children.Add(new TextBlock
+            aiAddSheetTitle = new TextBlock
             {
                 Text = "加入模型",
                 FontFamily = AiFont,
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(AiTextColor)
-            });
+            };
+            stack.Children.Add(aiAddSheetTitle);
             stack.Children.Add(new TextBlock
             {
                 Text = "保存后写入 data\\models.txt，Key 用 DPAPI 加密写进 data\\keys.txt。",
@@ -700,7 +711,8 @@ namespace IslandShot
             aiAddModelBox = AiFieldBox();
             stack.Children.Add(aiAddModelBox);
 
-            stack.Children.Add(AiFieldLabel("API Key（可以留空，之后手改 keys.txt）"));
+            aiAddKeyHint = AiFieldLabel("API Key（可以留空，之后手改 keys.txt）");
+            stack.Children.Add(aiAddKeyHint);
             aiAddKeyBox = AiFieldBox();
             stack.Children.Add(aiAddKeyBox);
 
@@ -1345,8 +1357,17 @@ namespace IslandShot
 
         void UpdateAiChipTexts()
         {
+            AiModelConfig current = CurrentAiModel();
+            bool missingKey = current != null
+                && !string.IsNullOrEmpty(current.KeyRef)
+                && !AiConfigStore.HasKey(current.KeyRef);
+
             if (aiModelChipText != null) aiModelChipText.Text = aiModelLabel;
-            if (aiModelValueText != null) aiModelValueText.Text = aiModelLabel;
+            if (aiModelValueText != null)
+            {
+                aiModelValueText.Text = missingKey ? aiModelLabel + "（缺 Key）" : aiModelLabel;
+                aiModelValueText.Foreground = new SolidColorBrush(missingKey ? Color.FromRgb(240, 180, 120) : AiTextColor);
+            }
             if (aiReasoningValueText != null) aiReasoningValueText.Text = aiReasoning;
         }
 
@@ -1387,10 +1408,28 @@ namespace IslandShot
             UpdateAiChipTexts();
         }
 
-        void OpenAiAddSheet()
+        // model == null → 新增；否则 → 编辑这一条（关键用途：给已有模型填 Key）
+        void OpenAiModelSheet(AiModelConfig model)
         {
             CloseAiChip();
             if (aiAddSheet == null) return;
+
+            aiEditingModelId = model == null ? null : model.Id;
+            if (aiAddSheetTitle != null)
+            {
+                aiAddSheetTitle.Text = model == null ? "加入模型" : "编辑模型";
+            }
+            if (aiAddNameBox != null) aiAddNameBox.Text = model == null ? "" : model.Label;
+            if (aiAddEndpointBox != null) aiAddEndpointBox.Text = model == null ? "" : model.BaseUrl;
+            if (aiAddModelBox != null) aiAddModelBox.Text = model == null ? "" : model.Model;
+            if (aiAddKeyBox != null) aiAddKeyBox.Text = "";
+            if (aiAddKeyHint != null)
+            {
+                if (model == null) aiAddKeyHint.Text = "API Key（可以留空，之后手改 keys.txt）";
+                else if (AiConfigStore.HasKey(model.KeyRef)) aiAddKeyHint.Text = "API Key（已保存，留空表示不改）";
+                else aiAddKeyHint.Text = "API Key（还没填，这次填上就能用了）";
+            }
+
             aiAddSheet.Visibility = Visibility.Visible;
             if (aiAddNameBox != null)
             {
@@ -1420,35 +1459,53 @@ namespace IslandShot
                 return;
             }
 
+            bool editing = !string.IsNullOrEmpty(aiEditingModelId);
             var config = new AiModelConfig();
-            config.Id = "m" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            config.Label = label;
-            config.BaseUrl = baseUrl.TrimEnd('/');
-            config.Model = modelId;
-            config.KeyRef = config.Id;
-            config.Vision = false;
-            AiConfigStore.SaveModel(config);
-
-            string hint = "已写入 data\\models.txt。";
-            if (key.Length > 0)
+            if (editing)
             {
-                if (AiConfigStore.SaveKey(config.Id, key)) hint += " Key 已加密保存。";
-                else hint += " Key 加密失败，请手改 keys.txt：" + config.Id + "|plain:你的key";
+                AiModelConfig existing = null;
+                for (int i = 0; i < aiModels.Count; i++)
+                {
+                    if (aiModels[i].Id == aiEditingModelId) { existing = aiModels[i]; break; }
+                }
+                config.Id = aiEditingModelId;
+                config.KeyRef = existing != null && !string.IsNullOrEmpty(existing.KeyRef)
+                    ? existing.KeyRef
+                    : aiEditingModelId;
+                config.Vision = existing != null && existing.Vision;
             }
             else
             {
-                hint += " 还没填 Key；要填就手改 keys.txt：" + config.Id + "|plain:你的key";
+                config.Id = "m" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                config.KeyRef = config.Id;
+            }
+
+            config.Label = label;
+            config.BaseUrl = baseUrl.TrimEnd('/');
+            config.Model = modelId;
+            AiConfigStore.SaveModel(config);
+
+            string hint = editing ? "已更新 data\\models.txt。" : "已写入 data\\models.txt。";
+            if (key.Length > 0)
+            {
+                if (AiConfigStore.SaveKey(config.KeyRef, key)) hint += " Key 已加密保存，可以发消息了。";
+                else hint += " Key 加密失败，请手改 keys.txt：" + config.KeyRef + "|plain:你的key";
+            }
+            else if (!AiConfigStore.HasKey(config.KeyRef))
+            {
+                hint += " 还没填 Key，所以还不能对话。";
             }
 
             if (aiAddNameBox != null) aiAddNameBox.Text = "";
             if (aiAddEndpointBox != null) aiAddEndpointBox.Text = "";
             if (aiAddModelBox != null) aiAddModelBox.Text = "";
             if (aiAddKeyBox != null) aiAddKeyBox.Text = "";
+            aiEditingModelId = null;
             CloseAiAddSheet();
 
             aiModels = AiConfigStore.LoadModels();
             ApplyAiModel(config);
-            ShowToolMessage("加入模型", hint);
+            ShowToolMessage(editing ? "编辑模型" : "加入模型", hint);
         }
     }
 }

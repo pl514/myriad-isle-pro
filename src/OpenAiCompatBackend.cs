@@ -245,7 +245,8 @@ namespace IslandShot
                 if (string.IsNullOrEmpty(key))
                 {
                     throw new InvalidOperationException(
-                        "这个模型需要 API Key。在 data\\keys.txt 里加一行：\n" + model.KeyRef + "|plain:你的key");
+                        "这个模型还没填 API Key。点底栏的模型 chip →「编辑当前模型」→ 把 Key 填进去保存。\n"
+                        + "（也可以手改 data\\keys.txt 加一行：" + model.KeyRef + "|plain:你的key）");
                 }
             }
             return new OpenAiCompatBackend(model.BaseUrl, model.Model, key);
