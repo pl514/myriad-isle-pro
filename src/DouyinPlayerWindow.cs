@@ -562,26 +562,19 @@ namespace IslandShot
             statusText.Visibility = Visibility.Collapsed;
         }
 
-        // 隐藏左侧导航栏 + 收掉左侧留白，尽量让画面占满（单页应用会重渲染，所以补几次）
+        // 只做一件最保守的事：把"贴左、竖长、窄"的那条导航栏隐藏掉。
+        // 绝不动容器的宽高和位移——之前把容器撑宽导致抖音按"填满"重算，视频就被裁切了。
         void CleanLayout()
         {
             if (view == null || view.CoreWebView2 == null) return;
             try
             {
                 string js =
-                    "(function(){try{var log=[];var els=document.querySelectorAll('div,aside,nav');" +
+                    "(function(){try{var hidden=0;var els=document.querySelectorAll('div,aside,nav');" +
                     "for(var i=0;i<els.length;i++){var r=els[i].getBoundingClientRect();" +
                     "if(r.height>innerHeight*0.45&&r.width>24&&r.width<180&&r.left<50){" +
-                    "els[i].style.display='none';}}" +
-                    "var v=document.querySelector('video');if(!v)return 'none';" +
-                    "var el=v;while(el&&el!==document.body){var cs=getComputedStyle(el);" +
-                    "if(parseFloat(cs.paddingLeft)>0){el.style.paddingLeft='0px';}" +
-                    "if(parseFloat(cs.marginLeft)>0){el.style.marginLeft='0px';}el=el.parentElement;}" +
-                    "var now=Math.round(document.querySelector('video').getBoundingClientRect().left);" +
-                    "if(now>4){var w=document.querySelector('video');" +
-                    "while(w.parentElement&&w.parentElement!==document.body)w=w.parentElement;" +
-                    "w.style.transform='translateX(-'+now+'px)';w.style.width='calc(100% + '+now+'px)';}" +
-                    "return 'ok';}catch(e){return 'err';}})()";
+                    "els[i].style.display='none';hidden++;}}" +
+                    "return 'hidden='+hidden;}catch(e){return 'err';}})()";
                 view.CoreWebView2.ExecuteScriptAsync(js);
             }
             catch (Exception) { }
