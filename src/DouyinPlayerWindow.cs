@@ -615,16 +615,29 @@ namespace IslandShot
                 if (mode == "tight")
                 {
                     // 布局宽 580 = 左边留白 72 + 视频 448 + 右边留白 60。
-                    // 视频只有 77% 宽，右侧那 60px 就是"黑条"。先把左边留白清掉，
-                    // 让布局瘦到 ~508，再重新缩放，视频+右侧图标列就能占满窗口。
+                    // 视频只有 77% 宽，右侧那 60px 就是"黑条"。
+                    // 关键：不能用行内样式（播放器一重渲染就被冲掉），要写进带 !important 的样式表，
+                    // 按元素自己的 class 生成规则，这样重建元素后规则依然生效。
                     ExecuteAndLog(
                         "(function(){try{var v=document.querySelector('video');if(!v)return 'no-video';" +
-                        "var n=0,el=v.parentElement;while(el&&el!==document.body){" +
+                        "var rules=[];var el=v.parentElement;var guard=0;" +
+                        "while(el&&el!==document.body&&guard++<20){" +
                         "var cs=getComputedStyle(el);" +
-                        "if(parseFloat(cs.paddingLeft)>0){el.style.paddingLeft='0px';n++;}" +
-                        "if(parseFloat(cs.marginLeft)>0){el.style.marginLeft='0px';n++;}" +
-                        "el=el.parentElement;}return 'tight '+n;}catch(e){return 'err '+e.message;}})()", "tight");
+                        "var pl=parseFloat(cs.paddingLeft)||0;var ml=parseFloat(cs.marginLeft)||0;" +
+                        "if(pl>0||ml>0){" +
+                        "var c='';try{c=String(el.className||'');}catch(e){}" +
+                        "var sp=c.indexOf(' ');if(sp>0)c=c.substring(0,sp);" +
+                        "if(c&&rules.indexOf(c)<0)rules.push(c);" +
+                        "el.style.paddingLeft='0px';el.style.marginLeft='0px';}" +
+                        "el=el.parentElement;}" +
+                        "if(rules.length){var st=document.getElementById('dsh-tight');" +
+                        "if(!st){st=document.createElement('style');st.id='dsh-tight';document.head.appendChild(st);}" +
+                        "var css='';for(var i=0;i<rules.length;i++){" +
+                        "css+='.'+rules[i]+'{padding-left:0!important;margin-left:0!important}';}" +
+                        "st.textContent=css;}" +
+                        "return 'tight '+rules.join(',');}catch(e){return 'err '+e.message;}})()", "tight");
 
+                    // 布局重排后再缩放，并在 2 秒后再校一次（防止播放器晚一步重渲染）
                     var zoomLater = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
                     zoomLater.Tick += delegate
                     {
@@ -632,6 +645,14 @@ namespace IslandShot
                         AutoZoom(0);
                     };
                     zoomLater.Start();
+
+                    var zoomLate2 = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2200) };
+                    zoomLate2.Tick += delegate
+                    {
+                        zoomLate2.Stop();
+                        AutoZoom(0);
+                    };
+                    zoomLate2.Start();
                 }
 
                 string js =
