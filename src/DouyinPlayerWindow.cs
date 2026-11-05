@@ -623,8 +623,12 @@ namespace IslandShot
                         "var rules=[];var el=v.parentElement;var guard=0;" +
                         "while(el&&el!==document.body&&guard++<20){" +
                         "var cs=getComputedStyle(el);" +
-                        "var pl=parseFloat(cs.paddingLeft)||0;var ml=parseFloat(cs.marginLeft)||0;" +
-                        "if(pl>0||ml>0){" +
+                        "var pl=parseFloat(cs.paddingLeft)||0;" +
+                        "var mlRaw=String(cs.marginLeft||'');" +
+                        "var rr=el.getBoundingClientRect();" +
+                        // 关键：居中是 margin:auto，parseFloat 会得到 NaN，所以要单独判断；
+                        // 另外"左边距大于 4px"也一并收进来（覆盖 flex 居中、外层 padding 之类）
+                        "if(pl>0||mlRaw==='auto'||rr.left>4){" +
                         "var c='';try{c=String(el.className||'');}catch(e){}" +
                         "var sp=c.indexOf(' ');if(sp>0)c=c.substring(0,sp);" +
                         "if(c&&rules.indexOf(c)<0)rules.push(c);" +
