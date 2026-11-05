@@ -525,6 +525,20 @@ namespace IslandShot
 
                 core.Settings.AreDevToolsEnabled = false;
                 core.Settings.IsStatusBarEnabled = false;
+
+                // mobile 模式：换成手机 UA，让抖音给移动版布局（更接近"手机刷抖音"）
+                string mode = ReadCleanMode();
+                DebugLog("init mode=" + mode);
+                if (mode == "mobile")
+                {
+                    try
+                    {
+                        core.Settings.UserAgent =
+                            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                            "Chrome/124.0.0.0 Mobile Safari/537.36";
+                    }
+                    catch (Exception) { }
+                }
                 core.NewWindowRequested += delegate(object s, CoreWebView2NewWindowRequestedEventArgs args)
                 {
                     args.Handled = true;
@@ -564,18 +578,102 @@ namespace IslandShot
 
         // 只做一件最保守的事：把"贴左、竖长、窄"的那条导航栏隐藏掉。
         // 绝不动容器的宽高和位移——之前把容器撑宽导致抖音按"填满"重算，视频就被裁切了。
+        //
+        // 另外这里会顺手把页面的真实尺寸写进 data\douyin-layout.log，
+        // 用来判断"画面偏右"到底是视口问题还是页面自己的布局问题。
         void CleanLayout()
         {
             if (view == null || view.CoreWebView2 == null) return;
             try
             {
+                string mode = ReadCleanMode();
+                string measure =
+                    "(function(){try{var v=document.querySelector('video');var r=v?v.getBoundingClientRect():null;" +
+                    "return JSON.stringify({iw:innerWidth,ih:innerHeight,sw:document.body.scrollWidth," +
+                    "cw:document.documentElement.clientWidth,z:window.devicePixelRatio," +
+                    "vx:r?Math.round(r.left):-1,vy:r?Math.round(r.top):-1,vw:r?Math.round(r.width):-1,vh:r?Math.round(r.height):-1});" +
+                    "}catch(e){return '{\"err\":1}';}})()";
+
+                ExecuteAndLog(measure, "measure");
+                DebugLog("wpf view=" + (int)view.ActualWidth + "x" + (int)view.ActualHeight
+                    + " win=" + (int)Width + "x" + (int)Height + " dpi=" + Dpi().ToString("0.00")
+                    + " mode=" + mode);
+
+                if (mode == "off") return;
+                if (mode == "zoom") AutoZoom(0);
+
                 string js =
                     "(function(){try{var hidden=0;var els=document.querySelectorAll('div,aside,nav');" +
                     "for(var i=0;i<els.length;i++){var r=els[i].getBoundingClientRect();" +
                     "if(r.height>innerHeight*0.45&&r.width>24&&r.width<180&&r.left<50){" +
                     "els[i].style.display='none';hidden++;}}" +
                     "return 'hidden='+hidden;}catch(e){return 'err';}})()";
-                view.CoreWebView2.ExecuteScriptAsync(js);
+                ExecuteAndLog(js, "clean");
+            }
+            catch (Exception) { }
+        }
+
+        // zoom 模式：抖音桌面版有约 580px 的最小布局宽度，窄窗装不下，
+        // 所以按 scrollWidth/innerWidth 把整页等比缩小，视频就完整了。
+        async void AutoZoom(int depth)
+        {
+            if (depth > 3) return;
+            try
+            {
+                if (view == null || view.CoreWebView2 == null) return;
+                string raw = await view.CoreWebView2.ExecuteScriptAsync(
+                    "(function(){var s=document.body.scrollWidth,i=innerWidth;var r=(s>i+4)?(i/s):1;return r.toFixed(3);})()");
+                double ratio;
+                if (!double.TryParse(raw.Trim('"'), System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out ratio)) return;
+                if (ratio >= 0.999) return;
+                double next = Math.Max(0.45, Math.Min(1.0, view.ZoomFactor * ratio));
+                if (Math.Abs(next - view.ZoomFactor) < 0.01) return;
+                view.ZoomFactor = next;
+                DebugLog("zoom -> " + next.ToString("0.000") + " ratio=" + ratio.ToString("0.000"));
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+                timer.Tick += delegate
+                {
+                    timer.Stop();
+                    AutoZoom(depth + 1);
+                };
+                timer.Start();
+            }
+            catch (Exception) { }
+        }
+
+        async void ExecuteAndLog(string script, string tag)
+        {
+            try
+            {
+                if (view == null || view.CoreWebView2 == null) return;
+                string result = await view.CoreWebView2.ExecuteScriptAsync(script);
+                DebugLog(tag + " -> " + result);
+            }
+            catch (Exception) { }
+        }
+
+        static string ReadCleanMode()
+        {
+            try
+            {
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "douyin-clean.txt");
+                if (!File.Exists(path)) return "nav";
+                string text = File.ReadAllText(path).Trim().ToLowerInvariant();
+                return string.IsNullOrEmpty(text) ? "nav" : text;
+            }
+            catch (Exception) { return "nav"; }
+        }
+
+        internal static void DebugLog(string message)
+        {
+            try
+            {
+                string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                string path = Path.Combine(folder, "douyin-layout.log");
+                if (File.Exists(path) && new FileInfo(path).Length > 200 * 1024) File.Delete(path);
+                File.AppendAllText(path, DateTime.Now.ToString("MM-dd HH:mm:ss") + "  " + message + Environment.NewLine);
             }
             catch (Exception) { }
         }
