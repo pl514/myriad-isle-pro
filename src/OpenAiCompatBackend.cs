@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -37,6 +38,14 @@ namespace IslandShot
 
         static HttpClient CreateClient()
         {
+            // .NET Framework 4.x 在旧系统上可能默认 TLS1.0，连现代 API 会直接握手失败
+            try
+            {
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12
+                    | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+            }
+            catch (Exception) { }
+
             var client = new HttpClient();
             client.Timeout = Timeout.InfiniteTimeSpan;   // 流式不能用整体超时，会把长回答截断
             return client;
@@ -216,9 +225,32 @@ namespace IslandShot
         {
             bool local = endpoint.IndexOf("127.0.0.1", StringComparison.Ordinal) >= 0
                 || endpoint.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) >= 0;
-            if (local) return new InvalidOperationException("连不上本机模型服务（" + endpoint + "）。");
-            string detail = exception == null ? "" : exception.Message;
-            return new InvalidOperationException("网络不通或接口地址不对：" + detail);
+
+            string detail = Describe(exception);
+            Program.Append("CapsuleImagePro-error.log", "HTTP FAIL endpoint=" + endpoint + " \n" + detail);
+
+            if (local)
+            {
+                return new InvalidOperationException(
+                    "连不上本机模型服务（" + endpoint + "）。这个地址是我测试用的 mock，不该作为默认。\n" + detail);
+            }
+            return new InvalidOperationException("网络不通或接口地址不对（" + endpoint + "）：\n" + detail);
+        }
+
+        // 把异常链摊平，用户能直接看出是哪一层挂了
+        static string Describe(Exception exception)
+        {
+            var sb = new StringBuilder();
+            int depth = 0;
+            Exception current = exception;
+            while (current != null && depth < 4)
+            {
+                if (depth > 0) sb.Append("\n  ↑ 由 ");
+                sb.Append(current.GetType().Name).Append(": ").Append(current.Message);
+                current = current.InnerException;
+                depth++;
+            }
+            return sb.ToString();
         }
     }
 
