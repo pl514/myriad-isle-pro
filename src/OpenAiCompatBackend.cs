@@ -104,7 +104,8 @@ namespace IslandShot
                     {
                         Program.Append("CapsuleImagePro-error.log",
                             "retry #" + attempt + " status=" + lastStatus + " " + lastBody);
-                        await Task.Delay(1200 * attempt, token);
+                        // 智谱的 1302 是账户级速率限制，退避要够长才有意义（1.5s → 3.5s）
+                        await Task.Delay(attempt == 1 ? 1500 : 3500, token);
                         continue;
                     }
                     throw BuildHttpError(lastStatus, lastBody, attempt);

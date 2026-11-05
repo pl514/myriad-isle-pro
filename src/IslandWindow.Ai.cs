@@ -43,6 +43,9 @@ namespace IslandShot
         Border aiChipPopup;
         Border aiModelOptions;
         Border aiAddSheet;
+        Grid aiShell;
+        Border aiSessionMenu;
+        ChatSession aiSessionMenuTarget;
         Button aiSendButton;
         TextBox aiInput;
         TextBox aiAddNameBox;
@@ -342,15 +345,27 @@ namespace IslandShot
             layout.Children.Add(footerWrap);
 
             // ---------------------------------------------------------- 浮层
+            aiShell = shell;
             aiChipPopup = BuildAiChipPopup();
             aiAddSheet = BuildAiAddSheet();
+            aiSessionMenu = BuildAiSessionMenu();
 
             shell.Children.Add(layout);
             shell.Children.Add(aiChipPopup);
             shell.Children.Add(aiAddSheet);
+            shell.Children.Add(aiSessionMenu);
 
             shell.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
             {
+                if (aiSessionMenu != null && aiSessionMenu.Visibility == Visibility.Visible)
+                {
+                    if (!aiSessionMenu.IsMouseOver)
+                    {
+                        CloseAiSessionMenu();
+                        e.Handled = true;
+                        return;
+                    }
+                }
                 if (!aiChipOpen) return;
                 if (aiChipButton != null && aiChipButton.IsMouseOver) return;
                 if (aiChipPopup != null && aiChipPopup.IsMouseOver) return;
@@ -1028,7 +1043,8 @@ namespace IslandShot
                     FontSize = 12,
                     Foreground = new SolidColorBrush(active ? AiTextColor : AiMutedColor),
                     TextTrimming = TextTrimming.CharacterEllipsis,
-                    VerticalAlignment = VerticalAlignment.Center
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 4, 0)
                 };
                 Grid.SetColumn(label, 1);
                 row.Children.Add(label);
@@ -1040,6 +1056,7 @@ namespace IslandShot
                     Margin = new Thickness(0, 2, 0, 2),
                     Padding = new Thickness(0, 0, 8, 0),
                     Cursor = Cursors.Hand,
+                    ToolTip = "左键切换 · 右键删除",
                     Background = active ? new SolidColorBrush(Color.FromArgb(26, 124, 108, 242)) : Brushes.Transparent,
                     Child = row
                 };
@@ -1053,8 +1070,106 @@ namespace IslandShot
                     if (!active) item.Background = Brushes.Transparent;
                 };
                 item.MouseLeftButtonUp += delegate { SwitchAiSession(captured); };
+                item.MouseRightButtonUp += delegate(object sender, MouseButtonEventArgs e)
+                {
+                    e.Handled = true;
+                    OpenAiSessionMenu(captured, e.GetPosition(aiShell));
+                };
                 aiSessionList.Children.Add(item);
             }
+        }
+
+        // 右键会话弹出的迷你菜单（面板内叠层，不用 ContextMenu：分层窗口里它会跑到所有窗口最上层）
+        Border BuildAiSessionMenu()
+        {
+            var stack = new StackPanel();
+            var row = new Border
+            {
+                Height = 30,
+                CornerRadius = new CornerRadius(8),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Tag = "ai-popup",
+                Child = new TextBlock
+                {
+                    Text = "删除会话",
+                    FontFamily = AiFont,
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromRgb(240, 120, 120)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(10, 0, 0, 0)
+                }
+            };
+            row.MouseLeftButtonUp += delegate
+            {
+                ChatSession target = aiSessionMenuTarget;
+                CloseAiSessionMenu();
+                DeleteAiSession(target);
+            };
+            row.MouseEnter += delegate { row.Background = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)); };
+            row.MouseLeave += delegate { row.Background = Brushes.Transparent; };
+            stack.Children.Add(row);
+
+            return new Border
+            {
+                Width = 130,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                CornerRadius = new CornerRadius(10),
+                Background = new SolidColorBrush(Color.FromRgb(38, 43, 52)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(45, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(4),
+                Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 5, Opacity = 0.5 },
+                Visibility = Visibility.Collapsed,
+                Child = stack
+            };
+        }
+
+        void OpenAiSessionMenu(ChatSession session, Point at)
+        {
+            if (aiSessionMenu == null || aiShell == null) return;
+            aiSessionMenuTarget = session;
+            CloseAiChip();
+
+            double maxX = Math.Max(0, aiShell.ActualWidth - 140);
+            double maxY = Math.Max(0, aiShell.ActualHeight - 50);
+            double x = Math.Max(0, Math.Min(at.X, maxX));
+            double y = Math.Max(0, Math.Min(at.Y, maxY));
+            aiSessionMenu.Margin = new Thickness(x, y, 0, 0);
+            aiSessionMenu.Visibility = Visibility.Visible;
+        }
+
+        void CloseAiSessionMenu()
+        {
+            if (aiSessionMenu != null) aiSessionMenu.Visibility = Visibility.Collapsed;
+            aiSessionMenuTarget = null;
+        }
+
+        // 删除一个会话：删掉当前会话时自动切到最近的一个；删空了就新建一个空会话
+        void DeleteAiSession(ChatSession session)
+        {
+            if (session == null || aiSessions == null) return;
+            if (aiStreaming && session == aiCurrent) StopAiStream();
+
+            aiSessions.Remove(session);
+
+            if (aiSessions.Count == 0)
+            {
+                aiCurrent = new ChatSession { Id = "session-1", Title = "新对话", Provider = aiProvider };
+                aiSessions.Add(aiCurrent);
+            }
+            else if (session == aiCurrent)
+            {
+                aiCurrent = aiSessions[aiSessions.Count - 1];
+            }
+
+            if (aiCurrent != null && !string.IsNullOrEmpty(aiCurrent.Provider))
+            {
+                SetAiProviderQuiet(aiCurrent.Provider);
+            }
+            RenderAiSessions();
+            RenderChat();
         }
 
         // ================================================================ 渲染
