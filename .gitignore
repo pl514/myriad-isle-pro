@@ -18,4 +18,4 @@ test/*.exe
 Thumbs.db
 desktop.ini
 .vs/
-*.user
+*.usersnapshot/

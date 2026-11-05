@@ -64,6 +64,9 @@ namespace IslandShot
 
         public event EventHandler UserClosed;
 
+        // 点 [×] 时交给主窗口去做"飞回胶囊"动画；没设就自己直接关
+        public Action<DouyinPlayerWindow> ExitRequested;
+
         readonly WebView2 view;
         readonly TextBlock statusText;
         readonly TextBlock hotkeyText;
@@ -73,6 +76,11 @@ namespace IslandShot
         IntPtr mouseHook = IntPtr.Zero;
         LowLevelMouseProc mouseProc;
         int cursorShown;
+        bool cloaked;
+        bool roundedApplied;
+
+        [DllImport("dwmapi.dll")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
         bool dragging;
         double dragDpi = 1.0, dragCursorX, dragCursorY, dragStartLeft, dragStartTop;
@@ -106,8 +114,8 @@ namespace IslandShot
             double h = Math.Max(560, Math.Min(900, work.Height * 0.72));
             Width = w;
             Height = h;
-            defaultLeft = work.Left + 12;
-            defaultTop = work.Top + (work.Height - h) / 2;
+            defaultLeft = work.Left + (work.Width - w) / 2;
+            defaultTop = work.Top + 8;
             Left = defaultLeft;
             Top = defaultTop;
             LoadPosition();
@@ -187,6 +195,7 @@ namespace IslandShot
             SourceInitialized += delegate
             {
                 handle = new WindowInteropHelper(this).Handle;
+                ApplyRoundedCorners();
                 InstallMouseHook();
             };
             Loaded += delegate { InitWebView(); };
@@ -379,6 +388,7 @@ namespace IslandShot
         public void ShowPlayer()
         {
             Show();
+            Reveal();
             Activate();
             GrabMouse();
         }
@@ -389,7 +399,76 @@ namespace IslandShot
             Hide();
         }
 
+        public void HideInstant()
+        {
+            try { ReleaseCursor(); Hide(); } catch (Exception) { }
+        }
+
+        /// <summary>当前窗口在屏幕上的矩形（DIP）。</summary>
+        public Rect ScreenRect()
+        {
+            return new Rect(Left, Top, Width, Height);
+        }
+
+        /// <summary>先以"隐形"方式显示：WebView2 能初始化、能加载，但用户看不见。</summary>
+        public void PrepareCloaked()
+        {
+            Show();
+            Cloak(true);
+        }
+
+        public void Reveal()
+        {
+            if (cloaked) Cloak(false);
+        }
+
+        /// <summary>退出后重置位置：下次点球回到"面板展开位置"。</summary>
+        public void ResetPosition()
+        {
+            try { if (File.Exists(PositionFile)) File.Delete(PositionFile); } catch (Exception) { }
+            Left = defaultLeft;
+            Top = defaultTop;
+        }
+
+        void Cloak(bool on)
+        {
+            cloaked = on;
+            try
+            {
+                if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).Handle;
+                int value = on ? 1 : 0;
+                DwmSetWindowAttribute(handle, 13, ref value, sizeof(int));
+            }
+            catch (Exception) { }
+        }
+
+        // Win11 原生圆角；Win10 不支持就保持直角（不会崩）
+        void ApplyRoundedCorners()
+        {
+            if (roundedApplied) return;
+            roundedApplied = true;
+            try
+            {
+                int preference = 2; // DWMWCP_ROUND
+                DwmSetWindowAttribute(handle, 33, ref preference, sizeof(int));
+            }
+            catch (Exception) { }
+        }
+
         void ExitPlayer()
+        {
+            if (ExitRequested != null)
+            {
+                // 交给主窗口演"飞回胶囊"
+                try { ExitRequested(this); }
+                catch (Exception) { }
+                return;
+            }
+            Finish();
+        }
+
+        /// <summary>真正销毁。由主窗口在动画结束后调用。</summary>
+        public void Finish()
         {
             ReleaseCursor();
             try { if (view != null && view.CoreWebView2 != null) view.Dispose(); }
@@ -486,7 +565,7 @@ namespace IslandShot
         {
             try
             {
-                if (nCode >= 0 && IsVisible && wParam.ToInt32() == WM_MOUSEWHEEL)
+                if (nCode >= 0 && IsVisible && !cloaked && wParam.ToInt32() == WM_MOUSEWHEEL)
                 {
                     MSLLHOOKSTRUCT data = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
                     if (IsInsideWindow(data.pt))
