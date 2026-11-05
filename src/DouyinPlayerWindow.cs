@@ -627,6 +627,21 @@ namespace IslandShot
                 }
 
                 if (mode == "zoom") AutoZoom(0);
+
+                if (mode == "crop")
+                {
+                    // 用户只要求"视频不被裁、没有黑边"：
+                    //   ① 缩放按「视频宽度 → 窗口宽度」算（视频正好铺满）
+                    //   ② 再把页面整体左移，让视频左边缘贴住窗口左边缘
+                    // 代价：页面右侧（图标列）和顶栏右边会被切掉，这是刻意的。
+                    var crop1 = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+                    crop1.Tick += delegate { crop1.Stop(); CropToVideo(); };
+                    crop1.Start();
+
+                    var crop2 = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2200) };
+                    crop2.Tick += delegate { crop2.Stop(); CropToVideo(); };
+                    crop2.Start();
+                }
                 if (mode == "tight")
                 {
                     // 布局宽 580 = 左边留白 72 + 视频 448 + 右边留白 60。
@@ -758,6 +773,44 @@ namespace IslandShot
                     AutoZoom(depth + 1);
                 };
                 timer.Start();
+            }
+            catch (Exception) { }
+        }
+
+        // crop 模式：让视频铺满窗口宽度，两侧不留白。
+        async void CropToVideo()
+        {
+            try
+            {
+                if (view == null || view.CoreWebView2 == null) return;
+                string raw = await view.CoreWebView2.ExecuteScriptAsync(
+                    "(function(){var v=document.querySelector('video');if(!v)return '';" +
+                    "var r=v.getBoundingClientRect();return Math.round(r.left)+','+Math.round(r.width);})()");
+                string text = raw.Trim('"');
+                string[] parts = text.Split(',');
+                double videoLeft, videoWidth;
+                if (parts.Length != 2) return;
+                if (!double.TryParse(parts[0], out videoLeft)) return;
+                if (!double.TryParse(parts[1], out videoWidth)) return;
+                if (videoWidth < 80) return;
+
+                double windowWidth = view.ActualWidth;
+                if (windowWidth <= 0) return;
+
+                // 缩放：让视频的 CSS 宽度正好等于窗口宽度（DIP）
+                double zoom = Math.Max(0.4, Math.Min(1.6, windowWidth / videoWidth));
+                view.ZoomFactor = zoom;
+
+                // 左移：把视频左边那段留白推出窗口
+                string css = "body{transform:translateX(-" + (int)Math.Round(videoLeft) + "px)!important;" +
+                             "transform-origin:0 0!important}";
+                string js =
+                    "(function(){try{var st=document.getElementById('dsh-crop');" +
+                    "if(!st){st=document.createElement('style');st.id='dsh-crop';document.head.appendChild(st);}" +
+                    "st.textContent='" + css + "';return 'crop left=" + (int)Math.Round(videoLeft) +
+                    " w=" + (int)Math.Round(videoWidth) + " z=" + zoom.ToString("0.000") + "';}" +
+                    "catch(e){return 'err '+e.message;}})()";
+                ExecuteAndLog(js, "crop");
             }
             catch (Exception) { }
         }
