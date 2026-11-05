@@ -831,7 +831,7 @@ namespace IslandShot
             try
             {
                 string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "douyin-clean.txt");
-                if (!File.Exists(path)) return "zoom";
+                if (!File.Exists(path)) return "crop";
                 string text = File.ReadAllText(path).Trim().ToLowerInvariant();
                 return string.IsNullOrEmpty(text) ? "nav" : text;
             }
@@ -921,17 +921,41 @@ namespace IslandShot
             return found;
         }
 
-        // 抢回光标：游戏把光标藏起来/锁住时，让鼠标能用
+        [StructLayout(LayoutKind.Sequential)]
+        struct CURSORINFO
+        {
+            public int cbSize;
+            public int flags;
+            public IntPtr hCursor;
+            public POINT ptScreenPos;
+        }
+
+        [DllImport("user32.dll")]
+        static extern bool GetCursorInfo(ref CURSORINFO pci);
+
+        const int CURSOR_SHOWING = 0x0001;
+
+        // 只在"光标被别的程序藏起来了"（典型是游戏）时才恢复它。
+        // 桌面上光标本来就看得见 → 什么都不做：不挪、不抢、不改显示状态。
+        // （之前这里是无条件 ShowCursor×3 + SetCursorPos 到窗口中心，所以开窗会"抢鼠标"）
         void GrabMouse()
         {
             try
             {
+                CURSORINFO info = new CURSORINFO();
+                info.cbSize = Marshal.SizeOf(typeof(CURSORINFO));
+                if (!GetCursorInfo(ref info)) return;
+                if ((info.flags & CURSOR_SHOWING) != 0) return;
+
                 ClipCursor(IntPtr.Zero);
-                for (int i = 0; i < 3; i++) { ShowCursor(true); cursorShown++; }
-                double dpi = Dpi();
-                SetCursorPos(
-                    (int)Math.Round((Left + Width / 2) * dpi),
-                    (int)Math.Round((Top + Height * 0.45) * dpi));
+                for (int i = 0; i < 8; i++)
+                {
+                    CURSORINFO check = new CURSORINFO();
+                    check.cbSize = Marshal.SizeOf(typeof(CURSORINFO));
+                    if (GetCursorInfo(ref check) && (check.flags & CURSOR_SHOWING) != 0) break;
+                    ShowCursor(true);
+                    cursorShown++;
+                }
             }
             catch (Exception) { }
         }
