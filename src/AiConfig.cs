@@ -109,7 +109,25 @@ namespace IslandShot
             }
             if (index >= 0) list[index] = model;
             else list.Add(model);
+            WriteModels(list);
+        }
 
+        /// <summary>删掉一条模型（keys.txt 里对应的行保留，删模型不连 key 一起删）。</summary>
+        internal static void DeleteModel(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            List<AiModelConfig> list = LoadModels();
+            var keep = new List<AiModelConfig>();
+            foreach (AiModelConfig item in list)
+            {
+                if (item.Id != id) keep.Add(item);
+            }
+            if (keep.Count == 0) return;   // 至少留一条，不然 chip 没东西可选
+            WriteModels(keep);
+        }
+
+        static void WriteModels(List<AiModelConfig> list)
+        {
             var sb = new StringBuilder();
             sb.AppendLine("# id|label|baseUrl|model|keyRef|vision");
             foreach (AiModelConfig item in list)

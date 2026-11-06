@@ -53,11 +53,18 @@ namespace IslandShot
         TextBox aiAddModelBox;
         TextBlock aiAddSheetTitle;
         TextBlock aiAddKeyHint;
+        Button aiDeleteModelButton;
         string aiEditingModelId;
         TextBox aiAddKeyBox;
         TextBlock aiModelChipText;
         TextBlock aiModelValueText;
         TextBlock aiReasoningValueText;
+        Canvas aiReasoningSlider;
+        Border aiReasoningKnob;
+        TranslateTransform aiReasoningKnobMove;
+        Border aiReasoningFill;
+        ScaleTransform aiReasoningFillScale;
+        bool aiReasoningDragging;
         TextBlock aiEmptyHint;
         StackPanel aiEmptyState;
         ScrollViewer aiChatScroll;
@@ -83,7 +90,7 @@ namespace IslandShot
         string aiModelId = "";
         string aiProvider = "deepseek";
         string aiModelLabel = "未配置模型";
-        string aiReasoning = "High";
+        int aiReasoningIndex = 2;   // 0..4 → 低 / 中 / 高 / 极高 / 最高
         string aiLastUserText = "";
 
         // ================================================================ 构建
@@ -616,7 +623,7 @@ namespace IslandShot
             aiModelOptions.Child = new StackPanel();
             stack.Children.Add(aiModelOptions);
 
-            stack.Children.Add(BuildAiMenuRow("推理等级", out aiReasoningValueText, delegate { CycleAiReasoning(); }));
+            stack.Children.Add(BuildAiReasoningBlock());
             stack.Children.Add(new Border
             {
                 Height = 1,
@@ -646,25 +653,231 @@ namespace IslandShot
             return popup;
         }
 
+        // ---------------------------------------------------------- 推理等级滑块
+
+        const double AiSliderWidth = 196;
+        const double AiSliderPad = 6;
+        static readonly string[] AiReasoningLevels = new string[] { "低", "中", "高", "极高", "最高" };
+
+        static string ReasoningName(int index)
+        {
+            if (index < 0) index = 0;
+            if (index > AiReasoningLevels.Length - 1) index = AiReasoningLevels.Length - 1;
+            return AiReasoningLevels[index];
+        }
+
+        static double ReasoningStopX(int index)
+        {
+            double gap = (AiSliderWidth - 2 * AiSliderPad) / (AiReasoningLevels.Length - 1);
+            return AiSliderPad + index * gap;
+        }
+
+        // 自己画的滑块：一条细轨 + 五个吸点 + 一颗带辉光的旋钮。
+        // 不照抄参考图（那套是纯渐变铺满），这里用"已选段才上色"的表达，更安静。
+        StackPanel BuildAiReasoningBlock()
+        {
+            var block = new StackPanel { Margin = new Thickness(0, 2, 0, 4) };
+
+            var head = new Grid { Height = 26 };
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            head.Children.Add(new TextBlock
+            {
+                Text = "推理等级",
+                FontFamily = AiFont,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(AiMutedColor),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0)
+            });
+            aiReasoningValueText = new TextBlock
+            {
+                Text = ReasoningName(aiReasoningIndex),
+                FontFamily = AiFont,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromRgb(196, 186, 255)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            Grid.SetColumn(aiReasoningValueText, 1);
+            head.Children.Add(aiReasoningValueText);
+            block.Children.Add(head);
+
+            aiReasoningSlider = new Canvas
+            {
+                Width = AiSliderWidth,
+                Height = 18,
+                Margin = new Thickness(8, 0, 8, 2),
+                Cursor = Cursors.Hand,
+                Background = Brushes.Transparent
+            };
+
+            var track = new Border
+            {
+                Width = AiSliderWidth,
+                Height = 3,
+                CornerRadius = new CornerRadius(1.5),
+                Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255))
+            };
+            Canvas.SetTop(track, 8);
+            aiReasoningSlider.Children.Add(track);
+
+            aiReasoningFill = new Border
+            {
+                Width = AiSliderWidth,
+                Height = 3,
+                CornerRadius = new CornerRadius(1.5),
+                Background = new LinearGradientBrush(
+                    Color.FromRgb(124, 108, 242), Color.FromRgb(176, 156, 255),
+                    new Point(0, 0), new Point(1, 0)),
+                RenderTransformOrigin = new Point(0, 0.5)
+            };
+            aiReasoningFillScale = new ScaleTransform(1, 1);
+            aiReasoningFill.RenderTransform = aiReasoningFillScale;
+            Canvas.SetTop(aiReasoningFill, 8);
+            aiReasoningSlider.Children.Add(aiReasoningFill);
+
+            for (int i = 0; i < AiReasoningLevels.Length; i++)
+            {
+                var dot = new Border
+                {
+                    Width = 3,
+                    Height = 3,
+                    CornerRadius = new CornerRadius(1.5),
+                    Background = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255))
+                };
+                Canvas.SetLeft(dot, ReasoningStopX(i) - 1.5);
+                Canvas.SetTop(dot, 8);
+                aiReasoningSlider.Children.Add(dot);
+            }
+
+            aiReasoningKnob = new Border
+            {
+                Width = 12,
+                Height = 12,
+                CornerRadius = new CornerRadius(6),
+                Background = Brushes.White,
+                Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 0, Opacity = 0.85, Color = AiAccentColor }
+            };
+            aiReasoningKnobMove = new TranslateTransform(ReasoningStopX(aiReasoningIndex) - 6, 0);
+            aiReasoningKnob.RenderTransform = aiReasoningKnobMove;
+            Canvas.SetTop(aiReasoningKnob, 3);
+            aiReasoningKnob.IsHitTestVisible = false;
+            aiReasoningSlider.Children.Add(aiReasoningKnob);
+
+            aiReasoningFillScale.ScaleX = ReasoningStopX(aiReasoningIndex) / AiSliderWidth;
+
+            aiReasoningSlider.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                aiReasoningDragging = true;
+                try { aiReasoningSlider.CaptureMouse(); } catch (Exception) { }
+                SetAiReasoningFromX(e.GetPosition(aiReasoningSlider).X);
+            };
+            aiReasoningSlider.MouseMove += delegate(object sender, MouseEventArgs e)
+            {
+                if (!aiReasoningDragging) return;
+                if (e.LeftButton != MouseButtonState.Pressed)
+                {
+                    aiReasoningDragging = false;
+                    return;
+                }
+                SetAiReasoningFromX(e.GetPosition(aiReasoningSlider).X);
+            };
+            aiReasoningSlider.MouseLeftButtonUp += delegate
+            {
+                aiReasoningDragging = false;
+                try { aiReasoningSlider.ReleaseMouseCapture(); } catch (Exception) { }
+            };
+
+            block.Children.Add(aiReasoningSlider);
+            return block;
+        }
+
+        void SetAiReasoningFromX(double x)
+        {
+            double gap = (AiSliderWidth - 2 * AiSliderPad) / (AiReasoningLevels.Length - 1);
+            int index = (int)Math.Round((x - AiSliderPad) / gap);
+            SetAiReasoning(index);
+        }
+
+        void SetAiReasoning(int index)
+        {
+            if (index < 0) index = 0;
+            if (index > AiReasoningLevels.Length - 1) index = AiReasoningLevels.Length - 1;
+            bool changed = index != aiReasoningIndex;
+            aiReasoningIndex = index;
+
+            if (aiReasoningValueText != null) aiReasoningValueText.Text = ReasoningName(index);
+
+            if (aiReasoningFillScale != null)
+            {
+                double target = ReasoningStopX(index) / AiSliderWidth;
+                Motion.AnimateDouble(aiReasoningFillScale, ScaleTransform.ScaleXProperty,
+                    aiReasoningFillScale.ScaleX, target, changed ? 150 : 0, Motion.Enter, 0, null);
+            }
+            if (aiReasoningKnobMove != null)
+            {
+                Motion.AnimateDouble(aiReasoningKnobMove, TranslateTransform.XProperty,
+                    aiReasoningKnobMove.X, ReasoningStopX(index) - 6, changed ? 150 : 0, Motion.Enter, 0, null);
+            }
+        }
+
         Border BuildAiModelOption(AiModelConfig model)
         {
+            bool current = model.Id == aiModelId;
+            bool missingKey = !string.IsNullOrEmpty(model.KeyRef) && !AiConfigStore.HasKey(model.KeyRef);
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            // 当前模型用一个小圆点标记，不整行高亮
+            grid.Children.Add(new Border
+            {
+                Width = 4,
+                Height = 4,
+                CornerRadius = new CornerRadius(2),
+                Background = new SolidColorBrush(current ? AiAccentColor : Colors.Transparent),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+            var label = new TextBlock
+            {
+                Text = model.DisplayName(),
+                FontFamily = AiFont,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(current ? AiTextColor : AiMutedColor),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            Grid.SetColumn(label, 1);
+            grid.Children.Add(label);
+
+            if (missingKey)
+            {
+                var warn = new TextBlock
+                {
+                    Text = "缺 Key",
+                    FontFamily = AiFont,
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(Color.FromRgb(240, 180, 120)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(6, 0, 8, 0)
+                };
+                Grid.SetColumn(warn, 2);
+                grid.Children.Add(warn);
+            }
+
             var row = new Border
             {
-                Height = 28,
+                Height = 30,
                 CornerRadius = new CornerRadius(6),
                 Background = Brushes.Transparent,
                 Cursor = Cursors.Hand,
                 Tag = "ai-popup",
-                Child = new TextBlock
-                {
-                    Text = model.DisplayName(),
-                    FontFamily = AiFont,
-                    FontSize = 12,
-                    Foreground = new SolidColorBrush(AiTextColor),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(8, 0, 8, 0),
-                    TextTrimming = TextTrimming.CharacterEllipsis
-                }
+                Child = grid
             };
             AiModelConfig captured = model;
             row.MouseLeftButtonUp += delegate
@@ -732,13 +945,27 @@ namespace IslandShot
             aiAddKeyBox = AiFieldBox();
             stack.Children.Add(aiAddKeyBox);
 
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
+            var buttons = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+            buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            aiDeleteModelButton = ToolButton("删除", 10);
+            aiDeleteModelButton.HorizontalAlignment = HorizontalAlignment.Left;
+            aiDeleteModelButton.Foreground = new SolidColorBrush(Color.FromRgb(240, 130, 130));
+            aiDeleteModelButton.Visibility = Visibility.Collapsed;
+            aiDeleteModelButton.Click += delegate { DeleteEditingModel(); };
+            Grid.SetColumn(aiDeleteModelButton, 0);
+            buttons.Children.Add(aiDeleteModelButton);
+
+            var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             var cancel = ToolButton("取消", 10);
             cancel.Click += delegate { CloseAiAddSheet(); };
             var save = ToolButton("保存", 10);
             save.Click += delegate { ConfirmAiAddModel(); };
-            buttons.Children.Add(cancel);
-            buttons.Children.Add(save);
+            right.Children.Add(cancel);
+            right.Children.Add(save);
+            Grid.SetColumn(right, 1);
+            buttons.Children.Add(right);
             stack.Children.Add(buttons);
 
             card.Child = stack;
@@ -1533,7 +1760,7 @@ namespace IslandShot
                 aiModelValueText.Text = missingKey ? aiModelLabel + "（缺 Key）" : aiModelLabel;
                 aiModelValueText.Foreground = new SolidColorBrush(missingKey ? Color.FromRgb(240, 180, 120) : AiTextColor);
             }
-            if (aiReasoningValueText != null) aiReasoningValueText.Text = aiReasoning;
+            if (aiReasoningValueText != null) aiReasoningValueText.Text = ReasoningName(aiReasoningIndex);
         }
 
         void ToggleAiChip()
@@ -1565,14 +1792,6 @@ namespace IslandShot
                 : Visibility.Visible;
         }
 
-        void CycleAiReasoning()
-        {
-            if (aiReasoning == "High") aiReasoning = "Medium";
-            else if (aiReasoning == "Medium") aiReasoning = "Low";
-            else aiReasoning = "High";
-            UpdateAiChipTexts();
-        }
-
         // model == null → 新增；否则 → 编辑这一条（关键用途：给已有模型填 Key）
         void OpenAiModelSheet(AiModelConfig model)
         {
@@ -1580,6 +1799,10 @@ namespace IslandShot
             if (aiAddSheet == null) return;
 
             aiEditingModelId = model == null ? null : model.Id;
+            if (aiDeleteModelButton != null)
+            {
+                aiDeleteModelButton.Visibility = model == null ? Visibility.Collapsed : Visibility.Visible;
+            }
             if (aiAddSheetTitle != null)
             {
                 aiAddSheetTitle.Text = model == null ? "加入模型" : "编辑模型";
@@ -1609,6 +1832,21 @@ namespace IslandShot
         void CloseAiAddSheet()
         {
             if (aiAddSheet != null) aiAddSheet.Visibility = Visibility.Collapsed;
+        }
+
+        void DeleteEditingModel()
+        {
+            if (string.IsNullOrEmpty(aiEditingModelId)) return;
+            string id = aiEditingModelId;
+            aiEditingModelId = null;
+            CloseAiAddSheet();
+
+            if (aiStreaming) StopAiStream();
+            AiConfigStore.DeleteModel(id);
+            aiModels = AiConfigStore.LoadModels();
+            aiModelId = "";
+            ApplyAiModel(aiModels.Count > 0 ? aiModels[0] : null);
+            ShowToolMessage("删除模型", "已从 models.txt 里删掉这一条（keys.txt 里的 key 保留）。");
         }
 
         void ConfirmAiAddModel()
