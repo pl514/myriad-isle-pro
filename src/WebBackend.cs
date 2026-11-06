@@ -74,7 +74,22 @@ namespace IslandShot
                 }
             }
 
-            await window.AskAsync(text, onDelta, token);
+            // C# 5 不允许在 catch 里 await，所以先记下来再处理
+            OperationCanceledException cancelled = null;
+            try
+            {
+                await window.AskAsync(text, onDelta, token);
+            }
+            catch (OperationCanceledException exception)
+            {
+                cancelled = exception;
+            }
+            if (cancelled != null)
+            {
+                // 用户按了停止：把网页那边的生成也停掉，别让它继续跑
+                await window.StopPageAsync();
+                throw cancelled;
+            }
         }
     }
 
@@ -166,7 +181,10 @@ namespace IslandShot
             await EnsureReadyAsync(token);
             await EnsureLoggedInAsync(token);
 
-            // 1) 先数一下现在有几个回答块；新回答会排在后面
+            // 1) 先等页面空闲：用户按 Esc 只是停止我们这边的读取，网页那边还在继续生成。
+            //    不等的话，下一条发出去会先接着推"上一条的剩余内容"（实测踩到）。
+            await WaitIdleAsync(token);
+
             int before = await RunIntAsync(CountJs());
             int expected = before + (site.Kind == "db" ? 2 : 1);
             // 豆包：给整段对话拍个快照，之后只取"新增的尾巴"。
@@ -208,7 +226,7 @@ namespace IslandShot
                     if (current == null) current = "";
                 }
                 polls++;
-                if (polls % 10 == 1) Log("poll " + polls + " len=" + current.Length);
+                if (polls <= 80) Log("poll " + polls + " len=" + current.Length);
 
                 if (current != last)
                 {
@@ -233,6 +251,36 @@ namespace IslandShot
                 await Task.Delay(300);
             }
             token.ThrowIfCancellationRequested();
+        }
+
+        // 用户按了停止：网页那边其实还在生成，顺手把它也停掉，
+        // 否则下一条要等它吐完（实测等了 30 秒）。
+        internal async Task StopPageAsync()
+        {
+            try
+            {
+                if (view == null || view.CoreWebView2 == null) return;
+                string js = "(function(){var input=document.querySelector('" + Escape(site.InputSelector) + "');" +
+                            "if(!input)return 'no-input';" +
+                            "var empty=(input.value!==undefined)?((input.value||'').trim()===''):((input.innerText||'').trim()==='');" +
+                            "if(!empty)return 'skip-has-text';" +
+                            "var ir=input.getBoundingClientRect();" +
+                            "var bs=document.querySelectorAll('button,[role=button],div[class*=button]');" +
+                            "var best=null,bestRight=-1;" +
+                            "for(var i=0;i<bs.length;i++){var b=bs[i];var r=b.getBoundingClientRect();" +
+                            "if(r.width<20||r.height<20)continue;" +
+                            "if(r.top<ir.bottom-40||r.top>ir.bottom+70)continue;" +
+                            "if(r.left<ir.left+ir.width*0.6)continue;" +
+                            "if(r.right>bestRight){bestRight=r.right;best=b;}}" +
+                            "if(!best)return 'no-button';" +
+                            "best.click();return 'stopped';})()";
+                string result = await RunScript(js);
+                Log("stop page: " + result);
+            }
+            catch (Exception exception)
+            {
+                Log("stop page failed: " + exception.Message);
+            }
         }
 
         // 没登录就揭盖让用户扫码；登录完成后再盖回去
@@ -374,6 +422,33 @@ namespace IslandShot
                    "var el=a[" + index + "];return el?el.innerText:'';})()";
         }
 
+        // 页面空闲 = 连续两次读到的"最后回答/整段对话"文本一致
+        async Task WaitIdleAsync(CancellationToken token)
+        {
+            string prev = null;
+            DateTime deadline = DateTime.UtcNow.AddSeconds(30);
+            while (DateTime.UtcNow < deadline && !token.IsCancellationRequested)
+            {
+                string now = await RunStringAsync(IdleTextJs());
+                if (now == null) now = "";
+                if (prev != null && now == prev)
+                {
+                    Log("page idle (" + now.Length + " chars)");
+                    return;
+                }
+                prev = now;
+                await Task.Delay(450);
+            }
+            Log("page still busy after 30s, continue anyway");
+        }
+
+        string IdleTextJs()
+        {
+            if (site.Kind == "db") return ListTextJs();
+            return "(function(){var a=document.querySelectorAll('" + Escape(site.AnswerSelector) + "');" +
+                   "return a.length? a[a.length-1].innerText : '';})()";
+        }
+
         // 整段对话的纯文本（去掉动作条/推荐/回到底部按钮），给豆包做"快照 + 取新增尾巴"用
         string ListTextJs()
         {
@@ -385,22 +460,39 @@ namespace IslandShot
                    "return (c.innerText||'').trim();})()";
         }
 
-        // 豆包：拿"快照之后新增的那一段"，并去掉开头对提问的回显
+        // 豆包：拿"快照之后新增的那一段"，并去掉开头对提问的回显。
+        // 不能要求整段严格 StartsWith —— 页面可能在别处插入（时间分隔、推荐等），
+        // 一旦不匹配就整段丢弃，会表现为"回答只出几个字就停"（实测踩到）。
         async Task<string> DbTailAsync(string snapshot, string prompt)
         {
             string now = await RunStringAsync(ListTextJs());
             if (string.IsNullOrEmpty(now)) return "";
             if (snapshot == null) snapshot = "";
-            if (now.Length <= snapshot.Length) return "";
-            if (!now.StartsWith(snapshot, StringComparison.Ordinal)) return "";   // 结构变了就先别推
-            string tail = now.Substring(snapshot.Length).Trim();
+            if (now.Length <= snapshot.Length) return now == snapshot ? "" : "";
+
+            int common = 0;
+            while (common < snapshot.Length && common < now.Length && snapshot[common] == now[common]) common++;
+            // 公共前缀太短说明这一屏已经换了（比如滚动/虚拟化），先不推，等稳定
+            if (snapshot.Length > 40 && common < snapshot.Length / 2) return "";
+
+            string tail = now.Substring(common).Trim();
             string question = (prompt == null ? "" : prompt).Trim();
             if (question.Length > 0 && tail.StartsWith(question, StringComparison.Ordinal))
             {
                 tail = tail.Substring(question.Length).Trim();
             }
+            // 「正在搜索 / 正在思考」这类是状态行，不是回答（豆包开了联网搜索会先显示一下）
+            for (int i = 0; i < DbBusyHints.Length; i++)
+            {
+                if (string.Equals(tail, DbBusyHints[i], StringComparison.Ordinal)) return "";
+            }
             return tail;
         }
+
+        static readonly string[] DbBusyHints = new string[]
+        {
+            "正在搜索", "正在思考", "深度思考中", "正在分析", "正在生成", "正在输入", "思考中"
+        };
 
         async Task<string> RunScript(string js)
         {
