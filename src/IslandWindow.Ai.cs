@@ -1570,6 +1570,12 @@ namespace IslandShot
             return model.BaseUrl.Substring(6).Trim('/');
         }
 
+        // 当前模型是不是网页版（只有网页版能吃图片）
+        bool CurrentModelIsWeb()
+        {
+            return WebSiteOf(CurrentAiModel()).Length > 0;
+        }
+
         void RebuildAiModelOptions()
         {
             if (aiModelOptions == null) return;
@@ -2062,15 +2068,16 @@ namespace IslandShot
         {
             if (aiStreaming || !aiVisible || aiInput == null) return;
 
-            // 图片还没接进模型（下一步做），先挡住，别让人以为发过去了
-            if (aiAttachments.Count > 0)
+            // 图片只有网页版能发（网页自己上传）；API 模型还没有视觉能力
+            if (aiAttachments.Count > 0 && !CurrentModelIsWeb())
             {
-                ShowToolMessage("发送到 AI", "图片还不能发给模型（这一步还没接）。点缩略图右上角的 × 移除后再发。");
+                ShowToolMessage("发送到 AI", "当前模型（API）不支持图片。点 D / 豆 小球切到网页版再发。");
                 return;
             }
 
             string text = aiInput.Text == null ? "" : aiInput.Text.Trim();
-            if (text.Length == 0) return;
+            if (text.Length == 0 && aiAttachments.Count == 0) return;
+            if (text.Length == 0) text = "请看看这张图片。";   // 只拖图不写字时给个默认提问
             aiInput.Text = "";
 
             if (aiCurrent == null) NewAiChat();
@@ -2110,6 +2117,14 @@ namespace IslandShot
                 // 每次发送前按当前模型解析后端：切换 chip 之后下一条就换服务商了。
                 // 配置不全（没 key / 没地址）时 Resolve 抛"人话"异常，下面统一变成错误气泡。
                 IChatBackend backend = ChatBackends.Resolve(CurrentAiModel(), ReasoningEffort());
+                WebBackend webBackend = backend as WebBackend;
+                if (webBackend != null && aiAttachments.Count > 0)
+                {
+                    // 图片只在网页版能发（网页自己会上传），交给它之后清空图片条
+                    webBackend.SetAttachments(aiAttachments.ToArray());
+                    aiAttachments.Clear();
+                    RenderAiAttachments();
+                }
                 await backend.SendAsync(prompt, delegate(string delta) { AppendDelta(message, delta); }, token);
                 message.Streaming = false;
                 FinishAiMessage(message, null);

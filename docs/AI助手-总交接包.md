@@ -72,6 +72,26 @@ cd E:\yingyong\deepseekgongzuoqv\IslandShot-pro
 
 工厂在 `ChatBackends.Resolve(model, effort)`：先看 `web://` 前缀 → `WebBackend`；否则 HTTP。
 
+### 3.1 图片（只有网页版支持）
+
+图片面板右键「发送到 AI」→ 卡片（预览 + 三个快捷问法 + 发送）→ 图片挂到 AI 输入框上方（最多 4 张，× 移除）。
+
+真正发出去时：**只有网页版模型能发图片**。做法是 CDP 塞文件：
+
+```
+DOM.enable
+DOM.getDocument {"depth":0}                 → root nodeId
+DOM.querySelector {"nodeId":root,"selector":"input[type=file]"}  → file nodeId
+DOM.setFileInputFiles {"nodeId":file,"files":["E:/path/a.png"]}
+```
+
+- 两个站点都只有一个隐藏的 `input[type=file]`，`accept` 里都含 png/jpeg/webp。
+- 普通 JS 改不了 file input 的值（浏览器安全限制），必须走 CDP。
+- 塞完文件等 2.2 秒再打字发送（等缩略图出来）。
+- **API 模型带图会被拦住并提示**（`OpenAiCompatBackend` 没有视觉能力）。
+
+实测（2026-11-06）：DS 网页版和豆包网页版都能对着图片回答识别类问题。
+
 **节流**：同一站点两次发送之间至少 3 秒（`WebBackend.LastSendAt`），且全进程单窗口。
 
 ---

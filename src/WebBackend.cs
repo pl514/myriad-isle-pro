@@ -48,6 +48,14 @@ namespace IslandShot
             this.site = site;
         }
 
+        // 要随这条消息一起发的图片（由调用方在 SendAsync 之前塞进来）
+        string[] pendingFiles;
+
+        internal void SetAttachments(string[] paths)
+        {
+            pendingFiles = paths;
+        }
+
         public async Task SendAsync(string text, Action<string> onDelta, CancellationToken token)
         {
             if (onDelta == null || site == null) return;
@@ -78,6 +86,11 @@ namespace IslandShot
             OperationCanceledException cancelled = null;
             try
             {
+                if (pendingFiles != null)
+                {
+                    window.SetAttachments(pendingFiles);
+                    pendingFiles = null;
+                }
                 await window.AskAsync(text, onDelta, token);
             }
             catch (OperationCanceledException exception)
@@ -187,6 +200,36 @@ namespace IslandShot
             await StopPageAsync();
             await Task.Delay(500);
 
+            // 有图片就先塞进网页的文件输入框，等它上传完再发文字
+            if (attachedFiles != null && attachedFiles.Length > 0)
+            {
+                string[] files = attachedFiles;
+                attachedFiles = null;
+                bool attached = await AttachImagesAsync(files);
+                Log("attach " + files.Length + " image(s): " + attached);
+                if (!attached)
+                {
+                    throw new InvalidOperationException("网页版没找到上传图片的入口（可能改版了）。先把图片去掉，或者手动贴进网页。");
+                }
+                await Task.Delay(2200);   // 等缩略图出来，别在传一半时点发送
+            }
+
+            // 等页面稳定：回答块数量连续两次一致再往下走。
+            // 页面刚从旧会话切过来时 DOM 还没渲染完，这时候数块数会数成 0，
+            // 于是把"旧回答"当成新回答推出去（实测踩到）。
+            {
+                int lastCount = -1;
+                DateTime settle = DateTime.UtcNow.AddSeconds(6);
+                while (DateTime.UtcNow < settle)
+                {
+                    int c = await RunIntAsync(CountJs());
+                    if (c == lastCount) break;
+                    lastCount = c;
+                    await Task.Delay(400);
+                }
+                Log("settled count=" + lastCount);
+            }
+
             int before = await RunIntAsync(CountJs());
             int expected = before + (site.Kind == "db" ? 2 : 1);
             // 豆包：给整段对话拍个快照，之后只取"新增的尾巴"。
@@ -257,6 +300,68 @@ namespace IslandShot
 
         // 用户按了停止：网页那边其实还在生成，顺手把它也停掉，
         // 否则下一条要等它吐完（实测等了 30 秒）。
+        internal void SetAttachments(string[] paths)
+        {
+            attachedFiles = paths;
+        }
+
+        string[] attachedFiles;
+
+        // 把本地图片塞进网页的 <input type=file> —— 走 CDP 的 DOM.setFileInputFiles，
+        // 普通 JS 改不了 file input 的值（浏览器安全限制）。
+        internal async Task<bool> AttachImagesAsync(string[] paths)
+        {
+            if (paths == null || paths.Length == 0) return true;
+            if (view == null || view.CoreWebView2 == null) return false;
+
+            try
+            {
+                await view.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.enable", "{}");
+                string document = await view.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                    "DOM.getDocument", "{\"depth\":0}");
+                int rootId = ExtractInt(document, "nodeId");
+                if (rootId <= 0) { Log("cdp: no root node"); return false; }
+
+                string found = await view.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                    "DOM.querySelector",
+                    "{\"nodeId\":" + rootId + ",\"selector\":\"input[type=file]\"}");
+                int nodeId = ExtractInt(found, "nodeId");
+                if (nodeId <= 0) { Log("cdp: no file input"); return false; }
+
+                var sb = new StringBuilder();
+                sb.Append("{\"nodeId\":").Append(nodeId).Append(",\"files\":[");
+                for (int i = 0; i < paths.Length; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    sb.Append('"').Append((paths[i] ?? "").Replace("\\", "/")).Append('"');
+                }
+                sb.Append("]}");
+                await view.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.setFileInputFiles", sb.ToString());
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Log("attach failed: " + exception.Message);
+                return false;
+            }
+        }
+
+        static int ExtractInt(string json, string key)
+        {
+            if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(key)) return -1;
+            int at = json.IndexOf("\"" + key + "\"", StringComparison.Ordinal);
+            if (at < 0) return -1;
+            int colon = json.IndexOf(':', at + key.Length + 2);
+            if (colon < 0) return -1;
+            int i = colon + 1;
+            while (i < json.Length && (json[i] == ' ' || json[i] == '\t')) i++;
+            int start = i;
+            while (i < json.Length && char.IsDigit(json[i])) i++;
+            int value;
+            if (i > start && int.TryParse(json.Substring(start, i - start), out value)) return value;
+            return -1;
+        }
+
         internal async Task StopPageAsync()
         {
             try
