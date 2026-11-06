@@ -181,9 +181,11 @@ namespace IslandShot
             await EnsureReadyAsync(token);
             await EnsureLoggedInAsync(token);
 
-            // 1) 先等页面空闲：用户按 Esc 只是停止我们这边的读取，网页那边还在继续生成。
-            //    不等的话，下一条发出去会先接着推"上一条的剩余内容"（实测踩到）。
-            await WaitIdleAsync(token);
+            // 1) 先确保网页那边停下来：用户按 Esc 只停了我们这边的读取，网页还在继续生成。
+            //    这里直接点一次"停止/发送"位置那个按钮 —— 生成中就停掉，空闲时输入框是空的，
+            //    点一下不会发出空消息。（比"等文本不再变化"可靠：豆包的文本一直在变）
+            await StopPageAsync();
+            await Task.Delay(500);
 
             int before = await RunIntAsync(CountJs());
             int expected = before + (site.Kind == "db" ? 2 : 1);
@@ -422,33 +424,6 @@ namespace IslandShot
                    "var el=a[" + index + "];return el?el.innerText:'';})()";
         }
 
-        // 页面空闲 = 连续两次读到的"最后回答/整段对话"文本一致
-        async Task WaitIdleAsync(CancellationToken token)
-        {
-            string prev = null;
-            DateTime deadline = DateTime.UtcNow.AddSeconds(30);
-            while (DateTime.UtcNow < deadline && !token.IsCancellationRequested)
-            {
-                string now = await RunStringAsync(IdleTextJs());
-                if (now == null) now = "";
-                if (prev != null && now == prev)
-                {
-                    Log("page idle (" + now.Length + " chars)");
-                    return;
-                }
-                prev = now;
-                await Task.Delay(450);
-            }
-            Log("page still busy after 30s, continue anyway");
-        }
-
-        string IdleTextJs()
-        {
-            if (site.Kind == "db") return ListTextJs();
-            return "(function(){var a=document.querySelectorAll('" + Escape(site.AnswerSelector) + "');" +
-                   "return a.length? a[a.length-1].innerText : '';})()";
-        }
-
         // 整段对话的纯文本（去掉动作条/推荐/回到底部按钮），给豆包做"快照 + 取新增尾巴"用
         string ListTextJs()
         {
@@ -481,18 +456,47 @@ namespace IslandShot
             {
                 tail = tail.Substring(question.Length).Trim();
             }
+            // 联网搜索会在回答前面塞提示："搜索 2 个关键词，参考 11 篇资料" / "找到 2 篇资料"
+            for (int pass = 0; pass < 3; pass++)
+            {
+                string cleaned = SearchHintRegex.Replace(tail, "");
+                if (cleaned == tail) break;
+                tail = cleaned.TrimStart();
+            }
             // 「正在搜索 / 正在思考」这类是状态行，不是回答（豆包开了联网搜索会先显示一下）
             for (int i = 0; i < DbBusyHints.Length; i++)
             {
                 if (string.Equals(tail, DbBusyHints[i], StringComparison.Ordinal)) return "";
             }
-            return tail;
+            return TrimTailNoise(tail);
+        }
+
+        // 豆包会在回答末尾挂"相关视频/相关推荐"和话题标签，从末尾切掉
+        static string TrimTailNoise(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            string[] marks = new string[] { "相关视频", "相关推荐", "相关问题", "相关搜索" };
+            for (int i = 0; i < marks.Length; i++)
+            {
+                int index = text.LastIndexOf(marks[i], StringComparison.Ordinal);
+                if (index > 0 && index > text.Length * 0.6)
+                {
+                    text = text.Substring(0, index).TrimEnd();
+                }
+            }
+            return text;
         }
 
         static readonly string[] DbBusyHints = new string[]
         {
             "正在搜索", "正在思考", "深度思考中", "正在分析", "正在生成", "正在输入", "思考中"
         };
+
+        // 豆包联网搜索会在正文前塞一行"搜索 N 个关键词，参考 N 篇资料"或"找到 N 篇资料"
+        static readonly System.Text.RegularExpressions.Regex SearchHintRegex =
+            new System.Text.RegularExpressions.Regex(
+                @"^\s*(搜索|找到|参考)\s*\d+\s*(个关键词|篇资料|篇网页|篇来源|条结果)[，,、:：]?\s*",
+                System.Text.RegularExpressions.RegexOptions.None);
 
         async Task<string> RunScript(string js)
         {
