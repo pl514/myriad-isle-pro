@@ -233,20 +233,27 @@ JS 里把增量通过 `window.chrome.webview.postMessage(delta)` 发回来。
 | | `ds`（DeepSeek） | `db`（豆包） |
 |---|---|---|
 | 输入 | `textarea` + 原生 setter | `div.tiptap.ProseMirror` + `execCommand('insertText')` |
-| 回答定位 | 固定选择器 `.ds-markdown.ds-assistant-message-main-content`，取第 `before` 个 | `[class*=message-list]` 里**高度 > 40 的最后一行** |
-| 取文本 | 直接 `innerText` | 克隆该行 → 删掉 `[class*=action-bar]`、`[class*=suggest]` → `innerText.trim()` |
-| 避免读到旧回答 | 索引天然隔离 | 发送前先记下"上一条回答"，内容没变就当还没开始 |
+| 回答定位 | 固定选择器 `.ds-markdown.ds-assistant-message-main-content`，取第 `before` 个 | 整段对话**快照 + 取新增尾巴**（见下） |
+| 取文本 | 直接 `innerText` | 克隆 `[class^="message-list"]` → 删掉 `[class*=action-bar]`、`[class*=suggest]`、`[class*=to-bottom]` → `innerText.trim()` |
 
-实测：点豆包球 → chip 变「豆包网页版（实验）」→ 发 hi / ok → 收到「hi!hi～有什么我可以帮你的吗?」「ok」。
+**豆包为什么要改成"快照 + 尾巴"**（2026-11-06 用户实测踩到）：
 
-**踩到并修掉的两个坑**：
+最初取"最后一条消息行"，结果回答里**混着上一条提问和旧回答**，还会重复——
+因为豆包会把被提问的那句在回答里再显示一遍，而且行结构会随对话增长变化。
+
+现在：发送前把整段对话文本拍个快照，轮询时只取"快照之后新增的那一段"，
+再把开头对提问的回显去掉。这样旧内容天然进不来。
+
+实测：连问 3 轮（aa / bb / list 3 colors），气泡里只有本轮内容；
+长回答保留换行（`red (红色)` / `blue (蓝色)` / `green (绿色)`）。
+
+**另外两个坑**：
 
 1. 登录检测写成 `!= null`，`"0"` 也被当成已登录 → 改成 `== "1"`；
 2. 页面首次加载时 DOM 还没出来，被误判成"没登录"导致隐藏窗口闪一下 →
    判定前先给页面最多 20 秒。
 
-另外去掉了一个 30 秒的空等：原来要等"行数 +2"才轮询，现在直接轮询、
-用"是否等于上一条回答"来排除旧内容。
+还去掉了一个 30 秒的空等：原来要等"行数 +2"才轮询，现在直接轮询。
 
 ### 9.4 还没做
 

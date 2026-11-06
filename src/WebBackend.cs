@@ -169,9 +169,10 @@ namespace IslandShot
             // 1) 先数一下现在有几个回答块；新回答会排在后面
             int before = await RunIntAsync(CountJs());
             int expected = before + (site.Kind == "db" ? 2 : 1);
-            // 豆包要记下"上一条回答"，否则会先把旧回答当成新的推出去
-            string previous = site.Kind == "db" ? (await RunStringAsync(AnswerTextJs(before)) ?? "") : null;
-            Log("site=" + site.Id + " before=" + before + " expected=" + expected + " prevLen=" + (previous == null ? -1 : previous.Length));
+            // 豆包：给整段对话拍个快照，之后只取"新增的尾巴"。
+            // 之前取"最后一行"会把上一轮的提问/回答一起带进来（用户实测踩到，回答里混着旧内容）。
+            string snapshot = site.Kind == "db" ? (await RunStringAsync(ListTextJs()) ?? "") : null;
+            Log("site=" + site.Id + " before=" + before + " expected=" + expected + " snapshot=" + (snapshot == null ? -1 : snapshot.Length));
 
             // 2) 写入并发送
             string typed = await RunScript(TypeJs(prompt));
@@ -196,9 +197,16 @@ namespace IslandShot
                     throw new InvalidOperationException("网页版 120 秒没有新内容，可能被限流了，先用 API。");
                 }
 
-                string current = await RunStringAsync(AnswerTextJs(before));
-                if (current == null) current = "";
-                if (site.Kind == "db" && current == previous) current = "";   // 还是上一条回答 = 新的还没出来
+                string current;
+                if (site.Kind == "db")
+                {
+                    current = await DbTailAsync(snapshot, prompt);
+                }
+                else
+                {
+                    current = await RunStringAsync(AnswerTextJs(before));
+                    if (current == null) current = "";
+                }
                 polls++;
                 if (polls % 10 == 1) Log("poll " + polls + " len=" + current.Length);
 
@@ -364,6 +372,34 @@ namespace IslandShot
             }
             return "(function(){var a=document.querySelectorAll('" + Escape(site.AnswerSelector) + "');" +
                    "var el=a[" + index + "];return el?el.innerText:'';})()";
+        }
+
+        // 整段对话的纯文本（去掉动作条/推荐/回到底部按钮），给豆包做"快照 + 取新增尾巴"用
+        string ListTextJs()
+        {
+            return "(function(){var l=document.querySelector('[class^=\"message-list\"],[class*=\" message-list\"]');" +
+                   "if(!l)return '';" +
+                   "var c=l.cloneNode(true);" +
+                   "var j=c.querySelectorAll('[class*=action-bar],[class*=suggest],[class*=to-bottom]');" +
+                   "for(var i=0;i<j.length;i++){j[i].parentNode.removeChild(j[i]);}" +
+                   "return (c.innerText||'').trim();})()";
+        }
+
+        // 豆包：拿"快照之后新增的那一段"，并去掉开头对提问的回显
+        async Task<string> DbTailAsync(string snapshot, string prompt)
+        {
+            string now = await RunStringAsync(ListTextJs());
+            if (string.IsNullOrEmpty(now)) return "";
+            if (snapshot == null) snapshot = "";
+            if (now.Length <= snapshot.Length) return "";
+            if (!now.StartsWith(snapshot, StringComparison.Ordinal)) return "";   // 结构变了就先别推
+            string tail = now.Substring(snapshot.Length).Trim();
+            string question = (prompt == null ? "" : prompt).Trim();
+            if (question.Length > 0 && tail.StartsWith(question, StringComparison.Ordinal))
+            {
+                tail = tail.Substring(question.Length).Trim();
+            }
+            return tail;
         }
 
         async Task<string> RunScript(string js)
