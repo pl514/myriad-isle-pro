@@ -433,7 +433,7 @@ namespace IslandShot
                 string current;
                 if (site.Kind == "db")
                 {
-                    current = await DbAnswerAsync(previousBlock, prompt);
+                    current = await DbAnswerAsync(before, previousBlock, prompt);
                 }
                 else
                 {
@@ -698,23 +698,49 @@ namespace IslandShot
 
         // 豆包的消息列表是"一轮一个块"（提问和回答在同一个块里），所以不能等"块数 +2"。
         // 做法：发送前记下最后一块的文本，之后只要文本变了就是新内容；再把开头回显的提问剥掉。
-        async Task<string> DbAnswerAsync(string previous, string prompt)
+        async Task<string> DbAnswerAsync(int before, string previous, string prompt)
         {
+            int count = await RunIntAsync(CountJs());
             string raw = await RunStringAsync(AnswerTextJs(0));
             string text = raw ?? "";
             dbCalls++;
-            if (dbCalls % 10 == 1) Log("db: len=" + text.Length + " prev=" + (previous == null ? -1 : previous.Length));
+            if (dbCalls % 10 == 1) Log("db: count=" + count + " before=" + before + " len=" + text.Length + " prev=" + (previous == null ? -1 : previous.Length));
 
             if (text.Length == 0) return "";
-            if (previous != null && text == previous) return "";   // 还是上一轮的内容
+
+            string candidate;
+            if (count >= before + 2)
+            {
+                // 结构 A：一行一条消息 —— 最后一行就是这次的回答
+                if (previous != null && text == previous) return "";
+                candidate = text;
+            }
+            else if (previous != null && previous.Length > 0
+                     && text.Length > previous.Length
+                     && text.StartsWith(previous, StringComparison.Ordinal))
+            {
+                // 结构 B：整段会话挤在同一个容器里（恢复的长对话会变成这样）—— 取"新增的尾巴"
+                candidate = text.Substring(previous.Length).Trim();
+            }
+            else
+            {
+                return "";
+            }
 
             string question = (prompt == null ? "" : prompt).Trim();
-            if (question.Length > 0 && text.StartsWith(question, StringComparison.Ordinal))
+            if (question.Length > 0 && candidate.StartsWith(question, StringComparison.Ordinal))
             {
-                text = text.Substring(question.Length).Trim();
+                candidate = candidate.Substring(question.Length).Trim();
             }
-            if (LooksLikeStatus(text)) return "";
-            return TrimTailNoise(text);
+            // 联网搜索的提示行："搜索 N 个关键词，参考 N 篇资料" / "找到 N 篇资料"
+            for (int pass = 0; pass < 3; pass++)
+            {
+                string cleaned = SearchHintRegex.Replace(candidate, "");
+                if (cleaned == candidate) break;
+                candidate = cleaned.TrimStart();
+            }
+            if (LooksLikeStatus(candidate)) return "";
+            return TrimTailNoise(candidate);
         }
 
         string AnswerTextJs(int index)

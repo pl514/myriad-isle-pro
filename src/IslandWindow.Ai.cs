@@ -1678,7 +1678,11 @@ namespace IslandShot
             aiCurrent = session;
             UpdateAiOrbSelection();
             RenderAiSessions();
+            // 换会话保留旧的滚动偏移没意义：直接把最新一条露出来
+            try { if (aiChatScroll != null) aiChatScroll.ScrollToVerticalOffset(0); }
+            catch (Exception) { }
             RenderChat();
+            ScrollAiToEnd();
         }
 
         void RenderAiSessions()
@@ -1875,6 +1879,12 @@ namespace IslandShot
         void RenderChat()
         {
             if (aiMessageList == null) return;
+            // 重建会把滚动位置复位到顶部，这里先记下来再还原：
+            // 回答结束时也会走这里，不还原的话就会"一跳到底"（用户实测踩到）
+            double offset = 0;
+            try { if (aiChatScroll != null) offset = aiChatScroll.VerticalOffset; }
+            catch (Exception) { }
+
             aiMessageList.Children.Clear();
             int count = aiCurrent == null ? 0 : aiCurrent.Messages.Count;
             for (int i = 0; i < count; i++)
@@ -1885,7 +1895,13 @@ namespace IslandShot
             {
                 aiEmptyState.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
             }
-            ScrollAiToEnd();
+
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                try { if (aiChatScroll != null) aiChatScroll.ScrollToVerticalOffset(offset); }
+                catch (Exception) { }
+                UpdateAiJumpLatest();
+            }), DispatcherPriority.Background);
         }
 
         Border BuildBubble(ChatMessage message)
@@ -2097,6 +2113,24 @@ namespace IslandShot
             {
                 try { if (aiChatScroll != null) aiChatScroll.ScrollToEnd(); }
                 catch (Exception) { }
+                UpdateAiJumpLatest();
+            }), DispatcherPriority.Background);
+        }
+
+        // 把某条消息的顶部对齐到可视区顶部（发完问题停在这儿，方便从头读回答）
+        void ScrollAiToMessageTop(ChatMessage message)
+        {
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                try
+                {
+                    if (aiChatScroll == null || aiMessageList == null) return;
+                    if (message == null || message.Bubble == null) return;
+                    Point origin = message.Bubble.TranslatePoint(new Point(0, 0), aiMessageList);
+                    aiChatScroll.ScrollToVerticalOffset(Math.Max(0, origin.Y - 8));
+                }
+                catch (Exception) { }
+                UpdateAiJumpLatest();
             }), DispatcherPriority.Background);
         }
 
@@ -2145,7 +2179,8 @@ namespace IslandShot
                 aiMessageList.Children.Add(BuildBubble(aiMessage));
             }
             if (aiEmptyHint != null) aiEmptyHint.Visibility = Visibility.Collapsed;
-            ScrollAiToEnd();
+            // 停在"这条提问"的顶部：回答往下长，你从头读，不会被拽到末尾
+            ScrollAiToMessageTop(userMessage);
 
             aiStreaming = true;
             UpdateAiSendButton();
@@ -2257,10 +2292,10 @@ namespace IslandShot
         void AppendDelta(ChatMessage message, string delta)
         {
             if (string.IsNullOrEmpty(delta)) return;
-            bool follow = IsAiChatNearBottom();   // 先看用户当前在哪儿，再追加内容
+            // 不再自动跟随：回答增长时视图停在原位，让你从头读；要到底部点「↓ 最新」或自己滚
             message.Text += delta;
             RenderMessageContent(message);
-            if (follow) ScrollAiToEnd();
+            UpdateAiJumpLatest();
         }
 
         void FinishAiMessage(ChatMessage message, string error)
