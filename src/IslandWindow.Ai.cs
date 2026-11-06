@@ -43,6 +43,7 @@ namespace IslandShot
         Border aiChipPopup;
         Border aiModelOptions;
         Border aiAddSheet;
+        Border aiRulesSheet;
         Grid aiShell;
         Border aiSessionMenu;
         ChatSession aiSessionMenuTarget;
@@ -355,11 +356,13 @@ namespace IslandShot
             aiShell = shell;
             aiChipPopup = BuildAiChipPopup();
             aiAddSheet = BuildAiAddSheet();
+            aiRulesSheet = BuildAiRulesSheet();
             aiSessionMenu = BuildAiSessionMenu();
 
             shell.Children.Add(layout);
             shell.Children.Add(aiChipPopup);
             shell.Children.Add(aiAddSheet);
+            shell.Children.Add(aiRulesSheet);
             shell.Children.Add(aiSessionMenu);
 
             shell.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
@@ -444,7 +447,39 @@ namespace IslandShot
             aiOrbs[1] = BuildAiOrb(1, "豆包网页版", Color.FromRgb(58, 214, 169), Color.FromRgb(14, 165, 233), "豆");
             row.Children.Add(aiOrbs[0]);
             row.Children.Add(aiOrbs[1]);
+            row.Children.Add(BuildAiRulesOrb());
             return row;
+        }
+
+        // 小球右边那个「!」：点开网页版使用注意（怎么用才不容易被风控）
+        Border BuildAiRulesOrb()
+        {
+            var orb = new Border
+            {
+                Width = 22,
+                Height = 22,
+                CornerRadius = new CornerRadius(11),
+                Margin = new Thickness(8, 0, 0, 0),
+                Cursor = Cursors.Hand,
+                ToolTip = "网页版使用注意",
+                Background = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(46, 255, 255, 255))
+            };
+            orb.Child = new TextBlock
+            {
+                Text = "!",
+                FontFamily = AiFont,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(196, 186, 255)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            orb.MouseEnter += delegate { orb.Background = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)); };
+            orb.MouseLeave += delegate { orb.Background = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)); };
+            orb.MouseLeftButtonUp += delegate { ShowAiRules(); };
+            return orb;
         }
 
         Border BuildAiOrb(int index, string name, Color from, Color to, string glyph)
@@ -987,6 +1022,108 @@ namespace IslandShot
             };
         }
 
+        // 网页版使用注意（点小球右边那个「!」）
+        Border BuildAiRulesSheet()
+        {
+            var card = new Border
+            {
+                Width = 330,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                CornerRadius = new CornerRadius(14),
+                Background = new SolidColorBrush(Color.FromRgb(32, 37, 45)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(20, 16, 20, 14),
+                Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 8, Opacity = 0.45 }
+            };
+
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = "网页版使用注意",
+                FontFamily = AiFont,
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(AiTextColor)
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = "这两个球是「自动操作网页」，不是官方接口。按下面用，风险最低：",
+                FontFamily = AiFont,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(AiMutedColor),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 5, 0, 10)
+            });
+
+            string[] rules = new string[]
+            {
+                "一次只问一条，隔几秒再发，不连发、不并发。",
+                "弹出验证码/滑块就停下，手动处理，别连着重试。",
+                "只在自己电脑上用自己账号，别多开、别外借。",
+                "别拿它当产品对外接口——那是必封的。",
+                "出现限流就先切回 API 模型，过一阵再试。",
+                "网页改版可能失效，报错就用回 API。"
+            };
+            foreach (string rule in rules)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "·  " + rule,
+                    FontFamily = AiFont,
+                    FontSize = 11,
+                    LineHeight = 18,
+                    Foreground = new SolidColorBrush(Color.FromRgb(206, 210, 220)),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 5)
+                });
+            }
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = "API 模型是官方通道，没这类风险，日常优先用它。",
+                FontFamily = AiFont,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(158, 190, 255)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 12)
+            });
+
+            var ok = ToolButton("知道了", 10);
+            ok.HorizontalAlignment = HorizontalAlignment.Right;
+            ok.Click += delegate { CloseAiRules(); };
+            stack.Children.Add(ok);
+
+            card.Child = stack;
+
+            var sheet = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(150, 0, 0, 0)),
+                Visibility = Visibility.Collapsed,
+                Child = card
+            };
+            // 点卡片外面 = 收起
+            sheet.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (!card.IsMouseOver) CloseAiRules();
+            };
+            return sheet;
+        }
+
+        void ShowAiRules()
+        {
+            if (aiRulesSheet == null) return;
+            aiRulesSheet.Visibility = Visibility.Visible;
+            Motion.PopIn(aiRulesSheet, new Point(0.5, 0.5), 0.96, 6, 170, 0, Motion.Enter);
+        }
+
+        void CloseAiRules()
+        {
+            if (aiRulesSheet == null) return;
+            aiRulesSheet.Visibility = Visibility.Collapsed;
+        }
+
         TextBlock AiFieldLabel(string text)
         {
             return new TextBlock
@@ -1187,6 +1324,7 @@ namespace IslandShot
             if (!aiVisible) return;
             if (aiChipOpen) CloseAiChip();
             CloseAiAddSheet();
+            CloseAiRules();
             if (aiStreaming) StopAiStream();
             if (!expanded)
             {

@@ -239,6 +239,8 @@ namespace IslandShot
                 if (e.Key != Key.Escape) return;
                 if (aiVisible)
                 {
+                    if (aiRulesSheet != null && aiRulesSheet.Visibility == Visibility.Visible) { CloseAiRules(); e.Handled = true; return; }
+                    if (aiAddSheet != null && aiAddSheet.Visibility == Visibility.Visible) { CloseAiAddSheet(); e.Handled = true; return; }
                     if (aiChipOpen) { CloseAiChip(); e.Handled = true; return; }
                     if (aiStreaming) { StopAiStream(); e.Handled = true; return; }
                 }
