@@ -232,10 +232,8 @@ namespace IslandShot
 
             int before = await RunIntAsync(CountJs());
             int expected = before + (site.Kind == "db" ? 2 : 1);
-            // 豆包：给整段对话拍个快照，之后只取"新增的尾巴"。
-            // 之前取"最后一行"会把上一轮的提问/回答一起带进来（用户实测踩到，回答里混着旧内容）。
-            string snapshot = site.Kind == "db" ? (await RunStringAsync(ListTextJs()) ?? "") : null;
-            Log("site=" + site.Id + " before=" + before + " expected=" + expected + " snapshot=" + (snapshot == null ? -1 : snapshot.Length));
+            string previousBlock = site.Kind == "db" ? (await RunStringAsync(AnswerTextJs(0)) ?? "") : null;
+            Log("site=" + site.Id + " before=" + before + " expected=" + expected + " prevBlock=" + (previousBlock == null ? -1 : previousBlock.Length));
 
             // 2) 写入并发送
             string typed = await RunScript(TypeJs(prompt));
@@ -263,7 +261,7 @@ namespace IslandShot
                 string current;
                 if (site.Kind == "db")
                 {
-                    current = await DbTailAsync(snapshot, prompt);
+                    current = await DbAnswerAsync(previousBlock, prompt);
                 }
                 else
                 {
@@ -306,6 +304,7 @@ namespace IslandShot
         }
 
         string[] attachedFiles;
+        int dbCalls;
 
         // 把本地图片塞进网页的 <input type=file> —— 走 CDP 的 DOM.setFileInputFiles，
         // 普通 JS 改不了 file input 的值（浏览器安全限制）。
@@ -499,31 +498,68 @@ namespace IslandShot
             return "(function(){return document.querySelector('" + Escape(site.InputSelector) + "')?'1':'0';})()";
         }
 
-        // 数"回答块"个数：DeepSeek 一个回答一个块；豆包是消息行里较高的一行算一行
+        // 豆包的消息列表：页面上有多个类名含 message-list 的容器
+        // （"suggest-message-list-wrapper" 是推荐气泡，也算），直接 querySelector 会抓错。
+        // 优先用"类名以 message-list 开头"的那个，抓不到再退回"子元素最多"的。
+        // 之前只用"子元素最多"：空会话时推荐气泡（3 个）会赢 → 永远读不到正文（实测踩到）。
+        const string DbListJs =
+            "(function(){" +
+            "var exact=document.querySelector('[class^=\"message-list\"],[class*=\" message-list\"]');" +
+            "if(exact)return exact;" +
+            "var a=document.querySelectorAll('[class*=message-list]');" +
+            "var best=null,bestN=-1;for(var i=0;i<a.length;i++){var n=a[i].children.length;" +
+            "if(n>bestN){bestN=n;best=a[i];}}return best;})()";
+
+        // 数"回答块"个数：DeepSeek 一个回答一个块；豆包数"有文字的消息行"
+        // （豆包在消息之间会插空行，按高度数会把空行也算进去）
         string CountJs()
         {
             if (site.Kind == "db")
             {
-                return "(function(){var l=document.querySelector('[class*=message-list]');if(!l)return 0;" +
+                return "(function(){var l=" + DbListJs + ";if(!l)return 0;" +
                        "var n=0;for(var i=0;i<l.children.length;i++){" +
-                       "if(l.children[i].getBoundingClientRect().height>40)n++;}return n;})()";
+                       "if(((l.children[i].innerText||'').trim()).length>0)n++;}return n;})()";
             }
             return "(function(){return document.querySelectorAll('" + Escape(site.AnswerSelector) + "').length;})()";
+        }
+
+        // 豆包的消息列表是"一轮一个块"（提问和回答在同一个块里），所以不能等"块数 +2"。
+        // 做法：发送前记下最后一块的文本，之后只要文本变了就是新内容；再把开头回显的提问剥掉。
+        async Task<string> DbAnswerAsync(string previous, string prompt)
+        {
+            string raw = await RunStringAsync(AnswerTextJs(0));
+            string text = raw ?? "";
+            dbCalls++;
+            if (dbCalls % 10 == 1) Log("db: len=" + text.Length + " prev=" + (previous == null ? -1 : previous.Length));
+
+            if (text.Length == 0) return "";
+            if (previous != null && text == previous) return "";   // 还是上一轮的内容
+
+            string question = (prompt == null ? "" : prompt).Trim();
+            if (question.Length > 0 && text.StartsWith(question, StringComparison.Ordinal))
+            {
+                text = text.Substring(question.Length).Trim();
+            }
+            if (LooksLikeStatus(text)) return "";
+            return TrimTailNoise(text);
         }
 
         string AnswerTextJs(int index)
         {
             if (site.Kind == "db")
             {
-                // 豆包：取最后一条消息行，克隆后删掉动作条和推荐气泡，剩下的就是回答正文
-                return "(function(){var l=document.querySelector('[class*=message-list]');if(!l)return '';" +
+                // 豆包：从后往前找第一条**去掉噪声后仍有文字**的消息行
+                // （消息之间有空行、末尾还有只有"复制/推荐"的行，按位置取会取到它们）
+                return "(function(){var l=" + DbListJs + ";if(!l)return '';" +
                        "var rows=[];for(var i=0;i<l.children.length;i++){" +
-                       "if(l.children[i].getBoundingClientRect().height>40)rows.push(l.children[i]);}" +
-                       "if(!rows.length)return '';" +
-                       "var row=rows[rows.length-1];var clone=row.cloneNode(true);" +
+                       "if(((l.children[i].innerText||'').trim()).length>0)rows.push(l.children[i]);}" +
+                       "for(var k=rows.length-1;k>=0;k--){" +
+                       "var clone=rows[k].cloneNode(true);" +
                        "var junk=clone.querySelectorAll('[class*=action-bar],[class*=suggest]');" +
                        "for(var j=0;j<junk.length;j++){junk[j].parentNode.removeChild(junk[j]);}" +
-                       "return (clone.innerText||'').trim();})()";
+                       "var text=(clone.innerText||'').trim();" +
+                       "if(text.length>0)return text;}" +
+                       "return '';})()";
             }
             return "(function(){var a=document.querySelectorAll('" + Escape(site.AnswerSelector) + "');" +
                    "var el=a[" + index + "];return el?el.innerText:'';})()";
@@ -538,40 +574,6 @@ namespace IslandShot
                    "var j=c.querySelectorAll('[class*=action-bar],[class*=suggest],[class*=to-bottom]');" +
                    "for(var i=0;i<j.length;i++){j[i].parentNode.removeChild(j[i]);}" +
                    "return (c.innerText||'').trim();})()";
-        }
-
-        // 豆包：拿"快照之后新增的那一段"，并去掉开头对提问的回显。
-        // 不能要求整段严格 StartsWith —— 页面可能在别处插入（时间分隔、推荐等），
-        // 一旦不匹配就整段丢弃，会表现为"回答只出几个字就停"（实测踩到）。
-        async Task<string> DbTailAsync(string snapshot, string prompt)
-        {
-            string now = await RunStringAsync(ListTextJs());
-            if (string.IsNullOrEmpty(now)) return "";
-            if (snapshot == null) snapshot = "";
-            if (now.Length <= snapshot.Length) return now == snapshot ? "" : "";
-
-            int common = 0;
-            while (common < snapshot.Length && common < now.Length && snapshot[common] == now[common]) common++;
-            // 公共前缀太短说明这一屏已经换了（比如滚动/虚拟化），先不推，等稳定
-            if (snapshot.Length > 40 && common < snapshot.Length / 2) return "";
-
-            string tail = now.Substring(common).Trim();
-            string question = (prompt == null ? "" : prompt).Trim();
-            if (question.Length > 0 && tail.StartsWith(question, StringComparison.Ordinal))
-            {
-                tail = tail.Substring(question.Length).Trim();
-            }
-            // 联网搜索会在回答前面塞提示："搜索 2 个关键词，参考 11 篇资料" / "找到 2 篇资料"
-            for (int pass = 0; pass < 3; pass++)
-            {
-                string cleaned = SearchHintRegex.Replace(tail, "");
-                if (cleaned == tail) break;
-                tail = cleaned.TrimStart();
-            }
-            // 「正在搜索图片 / 正在思考」这类是状态行，不是回答（豆包开了联网搜索会先显示一下）。
-            // 之前只做精确匹配，"正在搜索图片"这种变体照样被当成回答推出去、还会被判成"回答结束"。
-            if (LooksLikeStatus(tail)) return "";
-            return TrimTailNoise(tail);
         }
 
         static bool LooksLikeStatus(string text)

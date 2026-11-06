@@ -47,6 +47,7 @@ namespace IslandShot
         Border aiRulesSheet;
         StackPanel aiAttachmentStrip;
         bool aiPickMode;
+        Border aiJumpLatest;
         Border aiPickBar;
         TextBlock aiPickCountText;
         Button aiPickSendButton;
@@ -249,6 +250,8 @@ namespace IslandShot
             var chatHost = new Grid { Margin = new Thickness(0, 0, 8, 0) };
             chatHost.Children.Add(aiChatScroll);
             chatHost.Children.Add(aiEmptyState);
+            chatHost.Children.Add(BuildAiJumpLatest());
+            aiChatScroll.ScrollChanged += delegate { UpdateAiJumpLatest(); };
             Grid.SetColumn(chatHost, 1);
             body.Children.Add(chatHost);
 
@@ -2153,12 +2156,66 @@ namespace IslandShot
             }
         }
 
+        // 用户往上翻着看的时候，别再把他拽回底部
+        bool IsAiChatNearBottom()
+        {
+            try
+            {
+                if (aiChatScroll == null) return true;
+                return aiChatScroll.VerticalOffset >= aiChatScroll.ScrollableHeight - 48;
+            }
+            catch (Exception) { return true; }
+        }
+
+        // 翻上去看长回答时，右下角出现一个"回到最新"
+        void UpdateAiJumpLatest()
+        {
+            if (aiJumpLatest == null) return;
+            bool away = false;
+            try
+            {
+                away = aiChatScroll != null
+                    && aiChatScroll.ScrollableHeight > 140
+                    && !IsAiChatNearBottom();
+            }
+            catch (Exception) { }
+            aiJumpLatest.Visibility = away ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        FrameworkElement BuildAiJumpLatest()
+        {
+            var pill = new Border
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 0, 10),
+                Padding = new Thickness(10, 4, 10, 4),
+                CornerRadius = new CornerRadius(12),
+                Background = new SolidColorBrush(Color.FromArgb(220, 42, 46, 56)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand,
+                Visibility = Visibility.Collapsed,
+                Child = new TextBlock
+                {
+                    Text = "↓ 最新",
+                    FontFamily = AiFont,
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(214, 208, 240))
+                }
+            };
+            pill.MouseLeftButtonUp += delegate { ScrollAiToEnd(); };
+            aiJumpLatest = pill;
+            return pill;
+        }
+
         void AppendDelta(ChatMessage message, string delta)
         {
             if (string.IsNullOrEmpty(delta)) return;
+            bool follow = IsAiChatNearBottom();   // 先看用户当前在哪儿，再追加内容
             message.Text += delta;
             RenderMessageContent(message);
-            ScrollAiToEnd();
+            if (follow) ScrollAiToEnd();
         }
 
         void FinishAiMessage(ChatMessage message, string error)
