@@ -1871,9 +1871,11 @@ namespace IslandShot
             AiModelConfig target = FindWebModel(id);
             if (target == null)
             {
-                if (string.Equals(id, "doubao", StringComparison.OrdinalIgnoreCase))
+                bool supported = string.Equals(id, "deepseek", StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(id, "doubao", StringComparison.OrdinalIgnoreCase);
+                if (!supported)
                 {
-                    ShowToolMessage("网页版驱动", "豆包网页版还没接好（只做了 DeepSeek）。先用 DeepSeek 网页版或 API 模型。");
+                    ShowToolMessage("网页版驱动", "这个站点还没接，先用 DeepSeek 网页版或 API 模型。");
                     return;
                 }
                 target = EnsureWebModel(id);

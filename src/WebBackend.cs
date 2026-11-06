@@ -25,6 +25,7 @@ namespace IslandShot
     internal sealed class WebSiteConfig
     {
         internal string Id;
+        internal string Kind = "ds";      // ds = textarea + 固定回答选择器；db = contenteditable + 消息列表
         internal string Url;
         internal string InputSelector;
         internal string AnswerSelector;   // 回答块（取最后一个 = 最新）
@@ -148,18 +149,35 @@ namespace IslandShot
 
         // ---------------------------------------------------------- 一问一答
 
+        static void Log(string message)
+        {
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "webdriver.log"),
+                    DateTime.Now.ToString("HH:mm:ss.fff") + "  " + message + Environment.NewLine,
+                    new UTF8Encoding(false));
+            }
+            catch (Exception) { }
+        }
+
         internal async Task AskAsync(string prompt, Action<string> onDelta, CancellationToken token)
         {
             await EnsureReadyAsync(token);
             await EnsureLoggedInAsync(token);
 
-            // 1) 先数一下现在有几个回答块：新回答会是第 count 个
-            int before = await RunIntAsync("document.querySelectorAll('" + Escape(site.AnswerSelector) + "').length");
+            // 1) 先数一下现在有几个回答块；新回答会排在后面
+            int before = await RunIntAsync(CountJs());
+            int expected = before + (site.Kind == "db" ? 2 : 1);
+            // 豆包要记下"上一条回答"，否则会先把旧回答当成新的推出去
+            string previous = site.Kind == "db" ? (await RunStringAsync(AnswerTextJs(before)) ?? "") : null;
+            Log("site=" + site.Id + " before=" + before + " expected=" + expected + " prevLen=" + (previous == null ? -1 : previous.Length));
 
             // 2) 写入并发送
-            await RunScript(TypeJs(prompt));
+            string typed = await RunScript(TypeJs(prompt));
             await Task.Delay(120);
             string sendResult = await RunScript(SendJs());
+            Log("type=" + typed + " send=" + sendResult);
             if (sendResult != null && sendResult.StartsWith("NO-SEND", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("网页版没找到发送按钮（可能改版了），先用 API。");
@@ -168,16 +186,21 @@ namespace IslandShot
             // 3) 轮询最后一个回答块，按增量推给前端
             string last = "";
             int stable = 0;
+            int polls = 0;
             DateTime started = DateTime.UtcNow;
             while (!token.IsCancellationRequested)
             {
                 if ((DateTime.UtcNow - started).TotalSeconds > 120)
                 {
+                    Log("timeout, last len=" + last.Length);
                     throw new InvalidOperationException("网页版 120 秒没有新内容，可能被限流了，先用 API。");
                 }
 
                 string current = await RunStringAsync(AnswerTextJs(before));
                 if (current == null) current = "";
+                if (site.Kind == "db" && current == previous) current = "";   // 还是上一条回答 = 新的还没出来
+                polls++;
+                if (polls % 10 == 1) Log("poll " + polls + " len=" + current.Length);
 
                 if (current != last)
                 {
@@ -207,23 +230,30 @@ namespace IslandShot
         // 没登录就揭盖让用户扫码；登录完成后再盖回去
         async Task EnsureLoggedInAsync(CancellationToken token)
         {
-            bool loggedIn = await RunStringAsync(InputExistsJs()) != null;
-            if (loggedIn) return;
+            // 先给页面一点时间（第一次打开时 DOM 还没出来，别急着判"没登录"把窗口闪出来）
+            DateTime loadDeadline = DateTime.UtcNow.AddSeconds(20);
+            while (DateTime.UtcNow < loadDeadline && !token.IsCancellationRequested)
+            {
+                if (await RunStringAsync(InputExistsJs()) == "1") return;
+                await Task.Delay(500);
+            }
 
+            Log("not logged in, reveal window");
             Reveal(true);
             DateTime deadline = DateTime.UtcNow.AddMinutes(3);
             while (DateTime.UtcNow < deadline && !token.IsCancellationRequested)
             {
                 await Task.Delay(1000);
-                if (await RunStringAsync(InputExistsJs()) != null)
+                if (await RunStringAsync(InputExistsJs()) == "1")
                 {
                     await Task.Delay(600);
                     Reveal(false);
+                    Log("login done, cloak window");
                     return;
                 }
             }
             Reveal(false);
-            throw new InvalidOperationException("网页版还没登录（等了三分钟），先在设置里扫码登录，或者先用 API。");
+            throw new InvalidOperationException("网页版还没登录（等了三分钟），点网页版球时会把窗口临时露出来，登录一次就好。");
         }
 
         void Reveal(bool show)
@@ -269,7 +299,7 @@ namespace IslandShot
         string TypeJs(string prompt)
         {
             string escaped = EscapeJson(prompt);
-            if (site.Id.Equals("deepseek", StringComparison.OrdinalIgnoreCase))
+            if (site.Kind == "ds")
             {
                 return "(function(){var el=document.querySelector('" + Escape(site.InputSelector) + "');" +
                        "if(!el)return 'NO-INPUT';" +
@@ -278,7 +308,7 @@ namespace IslandShot
                        "el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:\"" + escaped + "\"}));" +
                        "el.focus();return 'ok';})()";
             }
-            // 豆包等 contenteditable 站点（后续再加）
+            // contenteditable（豆包的 tiptap 编辑器）：只能走 execCommand，改 innerText 不会触发它的状态
             return "(function(){var el=document.querySelector('" + Escape(site.InputSelector) + "');" +
                    "if(!el)return 'NO-INPUT';el.focus();" +
                    "document.execCommand('insertText',false,\"" + escaped + "\");return 'ok';})()";
@@ -306,8 +336,32 @@ namespace IslandShot
             return "(function(){return document.querySelector('" + Escape(site.InputSelector) + "')?'1':'0';})()";
         }
 
+        // 数"回答块"个数：DeepSeek 一个回答一个块；豆包是消息行里较高的一行算一行
+        string CountJs()
+        {
+            if (site.Kind == "db")
+            {
+                return "(function(){var l=document.querySelector('[class*=message-list]');if(!l)return 0;" +
+                       "var n=0;for(var i=0;i<l.children.length;i++){" +
+                       "if(l.children[i].getBoundingClientRect().height>40)n++;}return n;})()";
+            }
+            return "(function(){return document.querySelectorAll('" + Escape(site.AnswerSelector) + "').length;})()";
+        }
+
         string AnswerTextJs(int index)
         {
+            if (site.Kind == "db")
+            {
+                // 豆包：取最后一条消息行，克隆后删掉动作条和推荐气泡，剩下的就是回答正文
+                return "(function(){var l=document.querySelector('[class*=message-list]');if(!l)return '';" +
+                       "var rows=[];for(var i=0;i<l.children.length;i++){" +
+                       "if(l.children[i].getBoundingClientRect().height>40)rows.push(l.children[i]);}" +
+                       "if(!rows.length)return '';" +
+                       "var row=rows[rows.length-1];var clone=row.cloneNode(true);" +
+                       "var junk=clone.querySelectorAll('[class*=action-bar],[class*=suggest]');" +
+                       "for(var j=0;j<junk.length;j++){junk[j].parentNode.removeChild(junk[j]);}" +
+                       "return (clone.innerText||'').trim();})()";
+            }
             return "(function(){var a=document.querySelectorAll('" + Escape(site.AnswerSelector) + "');" +
                    "var el=a[" + index + "];return el?el.innerText:'';})()";
         }
@@ -405,10 +459,22 @@ namespace IslandShot
             {
                 var site = new WebSiteConfig();
                 site.Id = "deepseek";
+                site.Kind = "ds";
                 site.Url = "https://chat.deepseek.com/";
                 site.InputSelector = "textarea";
                 site.AnswerSelector = ".ds-markdown.ds-assistant-message-main-content";
                 site.LoginHint = "扫码";
+                return site;
+            }
+            if (string.Equals(id, "doubao", StringComparison.OrdinalIgnoreCase))
+            {
+                var site = new WebSiteConfig();
+                site.Id = "doubao";
+                site.Kind = "db";
+                site.Url = "https://www.doubao.com/chat/";
+                site.InputSelector = "div.tiptap.ProseMirror";
+                site.AnswerSelector = "";   // 走 message-list 的"最后一行"，不用固定选择器
+                site.LoginHint = "登录";
                 return site;
             }
             throw new InvalidOperationException("网页版驱动还不支持这个站点：" + id);
