@@ -239,6 +239,7 @@ namespace IslandShot
                 if (e.Key != Key.Escape) return;
                 if (aiVisible)
                 {
+                    if (aiImageSheet != null && aiImageSheet.Visibility == Visibility.Visible) { CloseAiImageSheet(); e.Handled = true; return; }
                     if (aiRulesSheet != null && aiRulesSheet.Visibility == Visibility.Visible) { CloseAiRules(); e.Handled = true; return; }
                     if (aiAddSheet != null && aiAddSheet.Visibility == Visibility.Visible) { CloseAiAddSheet(); e.Handled = true; return; }
                     if (aiChipOpen) { CloseAiChip(); e.Handled = true; return; }
@@ -1397,6 +1398,10 @@ namespace IslandShot
                 }
                 catch (Exception) { }
             };
+            var aiItem = new MenuItem { Header = "发送到 AI" };
+            aiItem.Click += delegate { SendImageToAi(path); };
+            menu.Items.Add(aiItem);
+            menu.Items.Add(new Separator());
             menu.Items.Add(editItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(previewItem);

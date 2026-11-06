@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
@@ -44,6 +45,12 @@ namespace IslandShot
         Border aiModelOptions;
         Border aiAddSheet;
         Border aiRulesSheet;
+        Border aiImageSheet;
+        StackPanel aiAttachmentStrip;
+        string aiImageSheetPath;
+        string aiImageSheetPreset;
+        // 从图片面板「发送到 AI」带过来的图片（还没真正发给模型，先占位）
+        readonly List<string> aiAttachments = new List<string>();
         Grid aiShell;
         Border aiSessionMenu;
         ChatSession aiSessionMenuTarget;
@@ -342,12 +349,24 @@ namespace IslandShot
             Grid.SetColumn(aiSendButton, 2);
             footer.Children.Add(aiSendButton);
 
+            // 输入区上面的"已选图片"条（从图片面板「发送到 AI」带过来的）
+            aiAttachmentStrip = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(AiSidebarWidth + 10, 0, 14, 4),
+                Visibility = Visibility.Collapsed
+            };
+
+            var footerStack = new StackPanel();
+            footerStack.Children.Add(aiAttachmentStrip);
+            footerStack.Children.Add(footer);
+
             var footerWrap = new Border
             {
                 BorderBrush = new SolidColorBrush(Color.FromArgb(14, 255, 255, 255)),
                 BorderThickness = new Thickness(0, 1, 0, 0),
                 Padding = new Thickness(0, 6, 0, 0),
-                Child = footer
+                Child = footerStack
             };
             Grid.SetRow(footerWrap, 2);
             layout.Children.Add(footerWrap);
@@ -356,12 +375,14 @@ namespace IslandShot
             aiShell = shell;
             aiChipPopup = BuildAiChipPopup();
             aiAddSheet = BuildAiAddSheet();
+            aiImageSheet = BuildAiImageSheet();
             aiRulesSheet = BuildAiRulesSheet();
             aiSessionMenu = BuildAiSessionMenu();
 
             shell.Children.Add(layout);
             shell.Children.Add(aiChipPopup);
             shell.Children.Add(aiAddSheet);
+            shell.Children.Add(aiImageSheet);
             shell.Children.Add(aiRulesSheet);
             shell.Children.Add(aiSessionMenu);
 
@@ -1035,6 +1056,318 @@ namespace IslandShot
             };
         }
 
+        // ---------------------------------------------------------- 图片 → AI
+
+        // 图片面板右键「发送到 AI」进来的入口
+        internal void SendImageToAi(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
+            {
+                ShowToolMessage("发送到 AI", "这张图片已经不在了（可能被移走或删除）。");
+                return;
+            }
+            if (aiImageSheet == null) return;
+            aiImageSheetPath = path;
+            aiImageSheetPreset = "";
+            if (!aiVisible) OpenAiPanel();
+            RenderAiImageSheet();
+            aiImageSheet.Visibility = Visibility.Visible;
+            if (aiImageSheetSignatures != null) UpdateAiImageSheetActions();
+        }
+
+        Grid aiImageSheetBody;
+        readonly List<Border> aiImageSheetSignatures = new List<Border>();
+
+        Border BuildAiImageSheet()
+        {
+            var card = new Border
+            {
+                Width = 340,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                CornerRadius = new CornerRadius(14),
+                Background = new SolidColorBrush(Color.FromRgb(32, 37, 45)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(18, 16, 18, 14),
+                Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 8, Opacity = 0.45 }
+            };
+
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = "发送给 AI",
+                FontFamily = AiFont,
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(AiTextColor)
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = "图片会挂到输入框上方，挑一个快捷问法或者自己写。",
+                FontFamily = AiFont,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(AiMutedColor),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 5, 0, 10)
+            });
+
+            aiImageSheetBody = new Grid();
+            aiImageSheetBody.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            aiImageSheetBody.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            stack.Children.Add(aiImageSheetBody);
+            stack.Children.Add(BuildAiImageSheetActions());
+            stack.Children.Add(BuildAiImageSheetButtons());
+
+            card.Child = stack;
+
+            var sheet = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(150, 0, 0, 0)),
+                Visibility = Visibility.Collapsed,
+                Child = card
+            };
+            sheet.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (!card.IsMouseOver) CloseAiImageSheet();
+            };
+            return sheet;
+        }
+
+        void RenderAiImageSheet()
+        {
+            if (aiImageSheetBody == null) return;
+            aiImageSheetBody.Children.Clear();
+
+            var frame = new Border
+            {
+                Width = 96,
+                Height = 96,
+                CornerRadius = new CornerRadius(10),
+                Margin = new Thickness(0, 0, 12, 0),
+                Background = new SolidColorBrush(Color.FromArgb(22, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                ClipToBounds = true
+            };
+            try
+            {
+                frame.Child = new Image { Source = LoadAiThumb(aiImageSheetPath, 192), Stretch = Stretch.UniformToFill };
+            }
+            catch (Exception)
+            {
+                frame.Child = new TextBlock
+                {
+                    Text = "读不到图片",
+                    FontFamily = AiFont,
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(AiMutedColor),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+            }
+            aiImageSheetBody.Children.Add(frame);
+
+            var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            info.Children.Add(new TextBlock
+            {
+                Text = System.IO.Path.GetFileName(aiImageSheetPath),
+                FontFamily = AiFont,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(AiTextColor),
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            info.Children.Add(new TextBlock
+            {
+                Text = "发送后会切到 AI 面板，图片挂在输入框上方。",
+                FontFamily = AiFont,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(AiMutedColor),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            Grid.SetColumn(info, 1);
+            aiImageSheetBody.Children.Add(info);
+        }
+
+        WrapPanel BuildAiImageSheetActions()
+        {
+            var row = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
+            string[] presets = new string[] { "这是什么", "图片配文", "找同款商品" };
+            aiImageSheetSignatures.Clear();
+            for (int i = 0; i < presets.Length; i++)
+            {
+                string preset = presets[i];
+                var chip = new Border
+                {
+                    CornerRadius = new CornerRadius(12),
+                    Padding = new Thickness(12, 5, 12, 5),
+                    Margin = new Thickness(0, 0, 8, 6),
+                    Cursor = Cursors.Hand,
+                    Background = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)),
+                    BorderBrush = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
+                    BorderThickness = new Thickness(1),
+                    Child = new TextBlock
+                    {
+                        Text = preset,
+                        FontFamily = AiFont,
+                        FontSize = 11,
+                        Foreground = new SolidColorBrush(AiTextColor)
+                    }
+                };
+                chip.MouseLeftButtonUp += delegate
+                {
+                    aiImageSheetPreset = aiImageSheetPreset == preset ? "" : preset;
+                    UpdateAiImageSheetActions();
+                };
+                aiImageSheetSignatures.Add(chip);
+                row.Children.Add(chip);
+            }
+            return row;
+        }
+
+        void UpdateAiImageSheetActions()
+        {
+            string[] presets = new string[] { "这是什么", "图片配文", "找同款商品" };
+            for (int i = 0; i < aiImageSheetSignatures.Count && i < presets.Length; i++)
+            {
+                bool active = aiImageSheetPreset == presets[i];
+                aiImageSheetSignatures[i].Background = new SolidColorBrush(active
+                    ? Color.FromArgb(70, 124, 108, 242)
+                    : Color.FromArgb(20, 255, 255, 255));
+                aiImageSheetSignatures[i].BorderBrush = new SolidColorBrush(active
+                    ? AiAccentColor
+                    : Color.FromArgb(34, 255, 255, 255));
+            }
+        }
+
+        Grid BuildAiImageSheetButtons()
+        {
+            var grid = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var cancel = ToolButton("取消", 10);
+            cancel.HorizontalAlignment = HorizontalAlignment.Left;
+            cancel.Click += delegate { CloseAiImageSheet(); };
+            Grid.SetColumn(cancel, 0);
+            grid.Children.Add(cancel);
+
+            var send = ToolButton("发送到 AI", 10);
+            send.HorizontalAlignment = HorizontalAlignment.Right;
+            send.Click += delegate { ConfirmSendImageToAi(); };
+            Grid.SetColumn(send, 1);
+            grid.Children.Add(send);
+            return grid;
+        }
+
+        void ConfirmSendImageToAi()
+        {
+            string path = aiImageSheetPath;
+            string preset = aiImageSheetPreset;
+            CloseAiImageSheet();
+            if (string.IsNullOrEmpty(path)) return;
+            if (!aiVisible) OpenAiPanel();
+            AddAiAttachment(path);
+            if (!string.IsNullOrEmpty(preset)) aiInput.Text = preset;
+            FocusAiInput();
+        }
+
+        void CloseAiImageSheet()
+        {
+            if (aiImageSheet != null) aiImageSheet.Visibility = Visibility.Collapsed;
+            aiImageSheetPath = "";
+            aiImageSheetPreset = "";
+        }
+
+        void AddAiAttachment(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            for (int i = 0; i < aiAttachments.Count; i++)
+            {
+                if (string.Equals(aiAttachments[i], path, StringComparison.OrdinalIgnoreCase))
+                {
+                    RenderAiAttachments();
+                    return;
+                }
+            }
+            if (aiAttachments.Count >= 4)
+            {
+                ShowToolMessage("发送到 AI", "一次最多带 4 张图片。");
+                return;
+            }
+            aiAttachments.Add(path);
+            RenderAiAttachments();
+        }
+
+        void RenderAiAttachments()
+        {
+            if (aiAttachmentStrip == null) return;
+            aiAttachmentStrip.Children.Clear();
+            foreach (string path in aiAttachments)
+            {
+                string captured = path;
+                var thumb = new Border
+                {
+                    Width = 42,
+                    Height = 42,
+                    CornerRadius = new CornerRadius(8),
+                    ClipToBounds = true,
+                    Background = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255)),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = new SolidColorBrush(Color.FromArgb(36, 255, 255, 255))
+                };
+                try { thumb.Child = new Image { Source = LoadAiThumb(captured, 84), Stretch = Stretch.UniformToFill }; }
+                catch (Exception) { }
+
+                var close = new Border
+                {
+                    Width = 16,
+                    Height = 16,
+                    CornerRadius = new CornerRadius(8),
+                    Background = new SolidColorBrush(Color.FromArgb(220, 30, 32, 38)),
+                    BorderBrush = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
+                    BorderThickness = new Thickness(1),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, -5, -5, 0),
+                    Cursor = Cursors.Hand,
+                    Child = new TextBlock
+                    {
+                        Text = "×",
+                        FontFamily = AiFont,
+                        FontSize = 10,
+                        Foreground = new SolidColorBrush(AiTextColor),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                };
+                close.MouseLeftButtonUp += delegate
+                {
+                    aiAttachments.Remove(captured);
+                    RenderAiAttachments();
+                };
+
+                var host = new Grid { Margin = new Thickness(0, 0, 8, 0), ToolTip = captured };
+                host.Children.Add(thumb);
+                host.Children.Add(close);
+                aiAttachmentStrip.Children.Add(host);
+            }
+            aiAttachmentStrip.Visibility = aiAttachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        static BitmapImage LoadAiThumb(string path, int decodeWidth)
+        {
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;   // 别锁文件
+            bitmap.DecodePixelWidth = decodeWidth;
+            bitmap.UriSource = new Uri(path, UriKind.Absolute);
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
+
         // 网页版使用注意（点小球右边那个「!」）
         Border BuildAiRulesSheet()
         {
@@ -1338,6 +1671,7 @@ namespace IslandShot
             if (aiChipOpen) CloseAiChip();
             CloseAiAddSheet();
             CloseAiRules();
+            CloseAiImageSheet();
             if (aiStreaming) StopAiStream();
             if (!expanded)
             {
@@ -1727,6 +2061,14 @@ namespace IslandShot
         void SubmitAiInput()
         {
             if (aiStreaming || !aiVisible || aiInput == null) return;
+
+            // 图片还没接进模型（下一步做），先挡住，别让人以为发过去了
+            if (aiAttachments.Count > 0)
+            {
+                ShowToolMessage("发送到 AI", "图片还不能发给模型（这一步还没接）。点缩略图右上角的 × 移除后再发。");
+                return;
+            }
+
             string text = aiInput.Text == null ? "" : aiInput.Text.Trim();
             if (text.Length == 0) return;
             aiInput.Text = "";
