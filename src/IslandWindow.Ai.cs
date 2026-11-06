@@ -1073,8 +1073,18 @@ namespace IslandShot
             if (model == null) return;
             aiModelId = model.Id;
             aiModelLabel = model.DisplayName();
+            aiProvider = WebSiteOf(model);   // 网页版模型时同步球的状态；API 模型置空
             UpdateAiChipTexts();
             RebuildAiModelOptions();
+            UpdateAiOrbSelection();
+        }
+
+        // 从模型配置反推网页版站点；不是网页版模型就返回空串
+        static string WebSiteOf(AiModelConfig model)
+        {
+            if (model == null || model.BaseUrl == null) return "";
+            if (!model.BaseUrl.StartsWith("web://", StringComparison.OrdinalIgnoreCase)) return "";
+            return model.BaseUrl.Substring(6).Trim('/');
         }
 
         void RebuildAiModelOptions()
@@ -1254,7 +1264,7 @@ namespace IslandShot
             if (session == null || session == aiCurrent) return;
             if (aiStreaming) StopAiStream();
             aiCurrent = session;
-            if (!string.IsNullOrEmpty(session.Provider)) SetAiProviderQuiet(session.Provider);
+            UpdateAiOrbSelection();
             RenderAiSessions();
             RenderChat();
         }
@@ -1413,9 +1423,9 @@ namespace IslandShot
                 aiCurrent = aiSessions[aiSessions.Count - 1];
             }
 
-            if (aiCurrent != null && !string.IsNullOrEmpty(aiCurrent.Provider))
+            if (aiCurrent != null)
             {
-                SetAiProviderQuiet(aiCurrent.Provider);
+                UpdateAiOrbSelection();   // 球高亮跟着当前模型走，不再单独存 provider
             }
             ChatStore.SaveAll(aiSessions);   // 删除要整体重写，否则文件里还留着
             RenderAiSessions();
@@ -1714,30 +1724,71 @@ namespace IslandShot
 
         // ================================================================ 网页版球 / 模型 chip
 
+        // 点球 = 直接把"当前模型"切到对应的网页版模型（chip 立刻跟着变）。
+        // 之前只改了个球的高亮、没动模型，导致"点了 DS 球还是发给智谱"——用户实测踩到过。
         void SetAiProvider(string id)
         {
             if (string.IsNullOrEmpty(id)) return;
-            aiProvider = id;
-            if (aiCurrent != null) aiCurrent.Provider = id;
-            UpdateAiOrbSelection();
+
+            AiModelConfig target = FindWebModel(id);
+            if (target == null)
+            {
+                if (string.Equals(id, "doubao", StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowToolMessage("网页版驱动", "豆包网页版还没接好（只做了 DeepSeek）。先用 DeepSeek 网页版或 API 模型。");
+                    return;
+                }
+                target = EnsureWebModel(id);
+            }
+
+            if (target != null) ApplyAiModel(target);
             if (aiChipOpen) CloseAiChip();
         }
 
-        void SetAiProviderQuiet(string id)
+        AiModelConfig FindWebModel(string siteId)
         {
-            if (string.IsNullOrEmpty(id)) return;
-            aiProvider = id;
-            UpdateAiOrbSelection();
+            for (int i = 0; i < aiModels.Count; i++)
+            {
+                AiModelConfig m = aiModels[i];
+                if (m == null || m.BaseUrl == null) continue;
+                if (!m.BaseUrl.StartsWith("web://", StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.Equals(m.BaseUrl.Substring(6).Trim('/'), siteId, StringComparison.OrdinalIgnoreCase)) return m;
+            }
+            return null;
         }
 
+        // 第一次点某个球时，把对应的网页版模型写进 models.txt（之后就是普通条目）
+        AiModelConfig EnsureWebModel(string siteId)
+        {
+            var config = new AiModelConfig();
+            config.Id = siteId + "-web";
+            config.Label = (siteId == "doubao" ? "豆包网页版（实验）" : "DeepSeek 网页版（实验）");
+            config.BaseUrl = "web://" + siteId;
+            config.Model = siteId;
+            config.KeyRef = "";
+            config.Vision = false;
+            AiConfigStore.SaveModel(config);
+            aiModels = AiConfigStore.LoadModels();
+            return FindWebModel(siteId);
+        }
+
+        // 球高亮不再单独存状态：直接看当前模型是不是某个网页版
         void UpdateAiOrbSelection()
         {
             if (aiOrbs == null) return;
+            string siteId = null;
+            AiModelConfig current = CurrentAiModel();
+            if (current != null && current.BaseUrl != null
+                && current.BaseUrl.StartsWith("web://", StringComparison.OrdinalIgnoreCase))
+            {
+                siteId = current.BaseUrl.Substring(6).Trim('/');
+            }
+
             for (int i = 0; i < aiOrbs.Length; i++)
             {
                 Border orb = aiOrbs[i];
                 if (orb == null) continue;
-                bool active = aiOrbIds[i] == aiProvider;
+                bool active = string.Equals(aiOrbIds[i], siteId, StringComparison.OrdinalIgnoreCase);
                 orb.BorderThickness = new Thickness(active ? 1.6 : 1);
                 orb.BorderBrush = new SolidColorBrush(active
                     ? AiAccentColor
