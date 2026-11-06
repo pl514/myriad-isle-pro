@@ -23,6 +23,8 @@ namespace IslandShot
         public string Model = "";
         public string KeyRef = "";
         public bool Vision;
+        // 推理等级怎么写进请求：effort = 传 reasoning_effort；空 = 不传（默认最安全）
+        public string Reasoning = "";
 
         public string DisplayName()
         {
@@ -34,9 +36,9 @@ namespace IslandShot
     internal static class AiConfigStore
     {
         const string DefaultModels =
-            "# id|label|baseUrl|model|keyRef|vision\r\n" +
-            "zhipu|智谱 GLM-4.7-Flash（免费）|https://open.bigmodel.cn/api/paas/v4|glm-4.7-flash|zhipu|false\r\n" +
-            "deepseek|DeepSeek Flash|https://api.deepseek.com|deepseek-flash|deepseek|true\r\n";
+            "# id|label|baseUrl|model|keyRef|vision|reasoning\r\n" +
+            "zhipu|智谱 GLM-4.7-Flash（免费）|https://open.bigmodel.cn/api/paas/v4|glm-4.7-flash|zhipu|false|\r\n" +
+            "deepseek|DeepSeek Flash|https://api.deepseek.com|deepseek-flash|deepseek|true|effort\r\n";
 
         internal static string DataDir
         {
@@ -78,6 +80,7 @@ namespace IslandShot
                     model.Model = parts[3].Trim();
                     model.KeyRef = parts.Length > 4 ? parts[4].Trim() : "";
                     model.Vision = parts.Length > 5 && parts[5].Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+                    model.Reasoning = parts.Length > 6 ? parts[6].Trim() : "";
                     if (model.Id.Length == 0 || model.Model.Length == 0) continue;
                     list.Add(model);
                 }
@@ -129,7 +132,7 @@ namespace IslandShot
         static void WriteModels(List<AiModelConfig> list)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("# id|label|baseUrl|model|keyRef|vision");
+            sb.AppendLine("# id|label|baseUrl|model|keyRef|vision|reasoning");
             foreach (AiModelConfig item in list)
             {
                 sb.Append(item.Id).Append('|')
@@ -137,7 +140,8 @@ namespace IslandShot
                   .Append(item.BaseUrl).Append('|')
                   .Append(item.Model).Append('|')
                   .Append(item.KeyRef).Append('|')
-                  .Append(item.Vision ? "true" : "false")
+                  .Append(item.Vision ? "true" : "false").Append('|')
+                  .Append(item.Reasoning == null ? "" : item.Reasoning)
                   .AppendLine();
             }
             try

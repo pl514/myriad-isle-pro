@@ -495,7 +495,33 @@ zhipu|plain:你的key原样贴这里
 
 ---
 
-## 13. 进度：M1 / M2 / M5 已完成（2026-11-06）
+## 13. 进度：M1 / M2 / M4 / M5 已完成（2026-11-06）
+
+### 13.00 推理等级真的进请求了（2026-11-06 补）
+
+`models.txt` 加第 7 列 `reasoning`：
+
+```
+# id|label|baseUrl|model|keyRef|vision|reasoning
+deepseek|DeepSeek Flash|https://api.deepseek.com|deepseek-flash|deepseek|true|effort
+```
+
+- `effort` → 请求体里加 `"reasoning_effort":"..."`；空 → 不传（默认，最安全）
+- 五档 → `minimal / low / medium / high / xhigh`
+- 网页版模型（`web://`）忽略这一列，网页自己那套不受影响
+
+**实测依据**（2026-11-06，用户真实 key）：
+
+| 服务商 | 结果 |
+|---|---|
+| DeepSeek | `minimal/low/medium/high/xhigh/none` **全部 200**，不报错 |
+| 智谱 | 当时整站 429（`1305 该模型当前访问量过大`），**测不出**，所以默认不传；等不限流时再把 zhipu 那行的第 7 列填成 `effort` 试 |
+
+请求体抓包验证（本地 mock 监听 11436，抓真实请求）：
+
+```
+{"model":"probe","stream":true,"messages":[...],"reasoning_effort":"xhigh"}
+```
 
 ### 13.0 M5 会话落盘（2026-11-06 补）
 

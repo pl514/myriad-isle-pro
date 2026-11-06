@@ -701,6 +701,19 @@ namespace IslandShot
             return AiReasoningLevels[index];
         }
 
+        // 五档 → OpenAI 的 reasoning_effort
+        string ReasoningEffort()
+        {
+            switch (aiReasoningIndex)
+            {
+                case 0: return "minimal";
+                case 1: return "low";
+                case 2: return "medium";
+                case 3: return "high";
+                default: return "xhigh";
+            }
+        }
+
         static double ReasoningStopX(int index)
         {
             double gap = (AiSliderWidth - 2 * AiSliderPad) / (AiReasoningLevels.Length - 1);
@@ -1754,7 +1767,7 @@ namespace IslandShot
             {
                 // 每次发送前按当前模型解析后端：切换 chip 之后下一条就换服务商了。
                 // 配置不全（没 key / 没地址）时 Resolve 抛"人话"异常，下面统一变成错误气泡。
-                IChatBackend backend = ChatBackends.Resolve(CurrentAiModel());
+                IChatBackend backend = ChatBackends.Resolve(CurrentAiModel(), ReasoningEffort());
                 await backend.SendAsync(prompt, delegate(string delta) { AppendDelta(message, delta); }, token);
                 message.Streaming = false;
                 FinishAiMessage(message, null);

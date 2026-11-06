@@ -28,12 +28,19 @@ namespace IslandShot
         readonly string endpoint;
         readonly string model;
         readonly string apiKey;
+        readonly string reasoningEffort;   // 空 = 不传；否则 @"low"/"medium"/... 只对声明了 effort 的模型传
 
         internal OpenAiCompatBackend(string baseUrl, string model, string apiKey)
+            : this(baseUrl, model, apiKey, null)
+        {
+        }
+
+        internal OpenAiCompatBackend(string baseUrl, string model, string apiKey, string reasoningEffort)
         {
             this.endpoint = (baseUrl == null ? "" : baseUrl).TrimEnd('/') + "/chat/completions";
             this.model = model == null ? "" : model;
             this.apiKey = apiKey == null ? "" : apiKey;
+            this.reasoningEffort = reasoningEffort == null ? "" : reasoningEffort.Trim();
         }
 
         static HttpClient CreateClient()
@@ -56,7 +63,12 @@ namespace IslandShot
             if (onDelta == null) return;
 
             string body = "{\"model\":\"" + JsonEscape(model) + "\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\""
-                + JsonEscape(text) + "\"}]}";
+                + JsonEscape(text) + "\"}]";
+            if (reasoningEffort.Length > 0)
+            {
+                body += ",\"reasoning_effort\":\"" + JsonEscape(reasoningEffort) + "\"";
+            }
+            body += "}";
 
             using (var total = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
@@ -293,6 +305,13 @@ namespace IslandShot
     {
         internal static IChatBackend Resolve(AiModelConfig model)
         {
+            return Resolve(model, null);
+        }
+
+        // effort：推理等级（"低/中/高/极高/最高" 映射成 minimal/low/medium/high/xhigh），
+        // 只有模型在 models.txt 里声明了 reasoning=effort 才会真的塞进请求体。
+        internal static IChatBackend Resolve(AiModelConfig model, string effort)
+        {
             if (model == null)
             {
                 throw new InvalidOperationException("还没有选择模型：点底栏的模型 chip 选一个。");
@@ -320,7 +339,8 @@ namespace IslandShot
                         + "（也可以手改 data\\keys.txt 加一行：" + model.KeyRef + "|plain:你的key）");
                 }
             }
-            return new OpenAiCompatBackend(model.BaseUrl, model.Model, key);
+            return new OpenAiCompatBackend(model.BaseUrl, model.Model, key,
+                string.Equals(model.Reasoning, "effort", StringComparison.OrdinalIgnoreCase) ? effort : null);
         }
     }
 }
