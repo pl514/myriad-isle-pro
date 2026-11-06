@@ -239,7 +239,7 @@ namespace IslandShot
                 if (e.Key != Key.Escape) return;
                 if (aiVisible)
                 {
-                    if (aiImageSheet != null && aiImageSheet.Visibility == Visibility.Visible) { CloseAiImageSheet(); e.Handled = true; return; }
+                    if (AiPickMode) { CancelAiPick(); e.Handled = true; return; }
                     if (aiRulesSheet != null && aiRulesSheet.Visibility == Visibility.Visible) { CloseAiRules(); e.Handled = true; return; }
                     if (aiAddSheet != null && aiAddSheet.Visibility == Visibility.Visible) { CloseAiAddSheet(); e.Handled = true; return; }
                     if (aiChipOpen) { CloseAiChip(); e.Handled = true; return; }
@@ -758,6 +758,41 @@ namespace IslandShot
             header.Children.Add(headerLeft);
             header.Children.Add(actions);
 
+            cardBadges = new Dictionary<string, Border>();
+
+            // 选图模式下的底部条：显示已选张数 + 取消 + 发送到 AI（点了才切面板）
+            aiPickCountText = new TextBlock
+            {
+                Text = "",
+                FontFamily = new FontFamily("Microsoft YaHei UI"),
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(217, 210, 255)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(2, 0, 10, 0)
+            };
+            var pickCancel = ToolButton("取消", 10);
+            pickCancel.Height = 24;
+            pickCancel.Click += delegate { CancelAiPick(); };
+            aiPickSendButton = ToolButton("发送到 AI", 12);
+            aiPickSendButton.Height = 24;
+            aiPickSendButton.Click += delegate { ConfirmAiPick(); };
+            var pickRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            pickRow.Children.Add(aiPickCountText);
+            pickRow.Children.Add(pickCancel);
+            pickRow.Children.Add(aiPickSendButton);
+            aiPickBar = new Border
+            {
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 18, 12),
+                Padding = new Thickness(10, 6, 10, 6),
+                CornerRadius = new CornerRadius(12),
+                Background = new SolidColorBrush(Color.FromArgb(236, 30, 34, 42)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(70, 124, 108, 242)),
+                BorderThickness = new Thickness(1),
+                Visibility = Visibility.Collapsed,
+                Child = pickRow
+            };
             cards = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 8, 0, 0) };
             scroller = new ScrollViewer
             {
@@ -817,6 +852,7 @@ namespace IslandShot
             content.Children.Add(empty);
             content.Children.Add(textScroller);
             content.Children.Add(textEmpty);
+            content.Children.Add(aiPickBar);
             Grid.SetRow(content, 1);
             body.Children.Add(content);
 
@@ -1092,6 +1128,36 @@ namespace IslandShot
             var stack = new StackPanel();
             stack.Children.Add(preview);
             stack.Children.Add(label);
+
+            // 选图模式的号码牌（默认隐藏，进选图状态后按选择顺序显示 1/2/3…）
+            var badge = new Border
+            {
+                Width = 22,
+                Height = 22,
+                CornerRadius = new CornerRadius(11),
+                Background = new SolidColorBrush(Color.FromRgb(124, 108, 242)),
+                BorderBrush = Brushes.White,
+                BorderThickness = new Thickness(1.5),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 2, 2, 0),
+                IsHitTestVisible = false,
+                Visibility = Visibility.Collapsed,
+                Child = new TextBlock
+                {
+                    Text = "1",
+                    FontFamily = new FontFamily("Microsoft YaHei UI"),
+                    FontSize = 11,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+            var cardContent = new Grid();
+            cardContent.Children.Add(stack);
+            cardContent.Children.Add(badge);
+
             var card = new Border
             {
                 Width = 172,
@@ -1102,10 +1168,19 @@ namespace IslandShot
                 Background = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(80, 124, 108, 242)),
                 BorderThickness = new Thickness(1),
-                Child = stack,
+                Child = cardContent,
                 Tag = path,
                 ToolTip = path,
                 Cursor = Cursors.Hand
+            };
+            if (cardBadges != null) cardBadges[path] = badge;
+
+            // 选图模式：左键点卡片 = 勾选/取消（拦在拖拽和菜单前面）
+            card.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (!AiPickMode) return;
+                ToggleAiPick(path);
+                e.Handled = true;
             };
             // 视频卡片：单击看封面、双击播放、按住拖动 = 把视频文件原生拖到微信等程序。
             bool videoPressed = false;
@@ -1343,6 +1418,36 @@ namespace IslandShot
             var stack = new StackPanel();
             stack.Children.Add(picture);
             stack.Children.Add(label);
+
+            // 选图模式的号码牌（默认隐藏，进选图状态后按选择顺序显示 1/2/3…）
+            var badge = new Border
+            {
+                Width = 22,
+                Height = 22,
+                CornerRadius = new CornerRadius(11),
+                Background = new SolidColorBrush(Color.FromRgb(124, 108, 242)),
+                BorderBrush = Brushes.White,
+                BorderThickness = new Thickness(1.5),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 2, 2, 0),
+                IsHitTestVisible = false,
+                Visibility = Visibility.Collapsed,
+                Child = new TextBlock
+                {
+                    Text = "1",
+                    FontFamily = new FontFamily("Microsoft YaHei UI"),
+                    FontSize = 11,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+            var cardContent = new Grid();
+            cardContent.Children.Add(stack);
+            cardContent.Children.Add(badge);
+
             var card = new Border
             {
                 Width = 172,
@@ -1353,9 +1458,28 @@ namespace IslandShot
                 Background = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
                 BorderThickness = new Thickness(1),
-                Child = stack,
+                Child = cardContent,
                 Tag = path,
                 ToolTip = path
+            };
+            if (cardBadges != null) cardBadges[path] = badge;
+
+            // 选图模式：左键点卡片 = 勾选/取消，并且把按下/抬起都吃掉，别触发拖拽或打开预览
+            card.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (!AiPickMode) return;
+                ToggleAiPick(path);
+                e.Handled = true;
+            };
+            card.PreviewMouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (!AiPickMode) return;
+                e.Handled = true;
+            };
+            card.MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (!AiPickMode) return;
+                e.Handled = true;
             };
 
             var menu = new ContextMenu();
@@ -1399,7 +1523,7 @@ namespace IslandShot
                 catch (Exception) { }
             };
             var aiItem = new MenuItem { Header = "发送到 AI" };
-            aiItem.Click += delegate { SendImageToAi(path); };
+            aiItem.Click += delegate { BeginAiPick(path); };
             menu.Items.Add(aiItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(editItem);

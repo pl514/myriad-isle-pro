@@ -74,7 +74,26 @@ cd E:\yingyong\deepseekgongzuoqv\IslandShot-pro
 
 ### 3.1 图片（只有网页版支持）
 
-图片面板右键「发送到 AI」→ 卡片（预览 + 三个快捷问法 + 发送）→ 图片挂到 AI 输入框上方（最多 4 张，× 移除）。
+**选图流程（2026-11-06 按用户要求重做）**：
+
+```
+图片面板右键卡片 →「发送到 AI」
+   ↓  不跳转，进入"选图模式"
+点卡片 → 右上角按顺序出现号码牌 1 / 2 / 3（再点取消，最多 4 张）
+   ↓
+点右下角浮条 [发送到 AI]（旁边显示"已选 N 张"，还有 [取消]）
+   ↓
+这时才切到 AI 面板：图片挂到输入框上方（42×42 缩略图 + × 移除）
+   ↓ 当前若是 API 模型，自动切到第一个网页版模型
+点发送 → 用户气泡里先摆图片缩略图再摆文字；历史里也带着
+```
+
+| 项 | 位置 |
+|---|---|
+| 选图状态 / 号码牌 / 浮条 | `IslandWindow.Ai.cs`：`BeginAiPick` / `ToggleAiPick` / `UpdateAiPickUi` / `ConfirmAiPick` |
+| 卡片上的号码牌 | `IslandWindow.cs` `AddImage`：卡片内容包一层 `Grid`，右上角一个 `Border` 徽章 |
+| 点卡片拦截拖拽 | 卡片 `PreviewMouseLeftButtonDown/Up` 在选图模式下 `e.Handled = true` |
+| 浮条 | 图片面板 `content` 里的右下角 `aiPickBar` |
 
 真正发出去时：**只有网页版模型能发图片**。做法是 CDP 塞文件：
 
@@ -90,7 +109,10 @@ DOM.setFileInputFiles {"nodeId":file,"files":["E:/path/a.png"]}
 - 塞完文件等 2.2 秒再打字发送（等缩略图出来）。
 - **API 模型带图会被拦住并提示**（`OpenAiCompatBackend` 没有视觉能力）。
 
-实测（2026-11-06）：DS 网页版和豆包网页版都能对着图片回答识别类问题。
+**落盘**：用户消息的图片以 `[img]路径` 行写在正文前面（行格式不变，旧数据兼容），
+读的时候 `ChatStore.SplitPayload` 再拆回 `ChatMessage.Images`。文件被删了气泡里显示"图片已删除"。
+
+实测（2026-11-06）：DS 网页版和豆包网页版都能对着图片回答识别类问题；3 张图一起发也能正确描述。
 
 **节流**：同一站点两次发送之间至少 3 秒（`WebBackend.LastSendAt`），且全进程单窗口。
 
