@@ -1807,10 +1807,36 @@ namespace IslandShot
         }
 
         // 删除一个会话：删掉当前会话时自动切到最近的一个；删空了就新建一个空会话
+        // 删掉胶囊会话后，顺手把网页版那边的对话归档掉（不然对方账号里会越积越多）
+        async void ArchiveWebThreads(List<KeyValuePair<string, string>> threads)
+        {
+            int archived = 0;
+            for (int i = 0; i < threads.Count; i++)
+            {
+                try
+                {
+                    if (await WebBackend.TryArchiveAsync(threads[i].Key, threads[i].Value)) archived++;
+                }
+                catch (Exception) { }
+            }
+            if (archived > 0)
+            {
+                ShowToolMessage("删除会话", "网页版那边也归档了 " + archived + " 条对话。");
+            }
+            else
+            {
+                ShowToolMessage("删除会话", "网页版那条对话没能自动归档（没开过网页版或网站改版了），需要的话去网页版里手动删。");
+            }
+        }
+
         void DeleteAiSession(ChatSession session)
         {
             if (session == null || aiSessions == null) return;
             if (aiStreaming && session == aiCurrent) StopAiStream();
+
+            // 这条会话在网页版那边对应的对话也一并归档（拿 URL 精确匹配，不靠标题猜）
+            List<KeyValuePair<string, string>> threads = WebThreadStore.Take(session.Id);
+            if (threads.Count > 0) ArchiveWebThreads(threads);
 
             aiSessions.Remove(session);
 
@@ -2127,6 +2153,17 @@ namespace IslandShot
                 // 配置不全（没 key / 没地址）时 Resolve 抛"人话"异常，下面统一变成错误气泡。
                 IChatBackend backend = ChatBackends.Resolve(CurrentAiModel(), ReasoningEffort());
                 WebBackend webBackend = backend as WebBackend;
+                if (webBackend != null && aiCurrent != null)
+                {
+                    // 胶囊会话 ↔ 网页会话 绑定：有记录就回那条，没有就开一条新的
+                    string siteId = WebSiteOf(CurrentAiModel());
+                    string sessionId = aiCurrent.Id;
+                    string thread = WebThreadStore.Get(sessionId, siteId);
+                    webBackend.SetThread(thread, thread == null, delegate(string url)
+                    {
+                        WebThreadStore.Set(sessionId, siteId, url);
+                    });
+                }
                 if (webBackend != null && aiAttachments.Count > 0)
                 {
                     // 图片只在网页版能发（网页自己会上传），交给它之后清空图片条

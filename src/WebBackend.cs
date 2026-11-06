@@ -51,11 +51,35 @@ namespace IslandShot
         // 要随这条消息一起发的图片（由调用方在 SendAsync 之前塞进来）
         string[] pendingFiles;
 
+        // 胶囊会话 ↔ 网页会话的绑定（由调用方在 SendAsync 之前塞进来）
+        string pendingThreadUrl;
+        bool pendingNewChat;
+        Action<string> onThreadDiscovered;
+
         internal void SetAttachments(string[] paths)
         {
             pendingFiles = paths;
         }
 
+        // url 为空 = 这个胶囊会话还没绑定网页会话，这次要开一条新的
+        internal void SetThread(string url, bool newChat, Action<string> onDiscovered)
+        {
+            pendingThreadUrl = url;
+            pendingNewChat = newChat;
+            onThreadDiscovered = onDiscovered;
+        }
+
+        // 给上层用：按站点拿共享窗口，去归档某条网页会话
+        internal static async Task<bool> TryArchiveAsync(string siteId, string threadUrl)
+        {
+            if (string.IsNullOrEmpty(siteId) || string.IsNullOrEmpty(threadUrl)) return false;
+            WebChatWindow window;
+            lock (Gate)
+            {
+                if (!Windows.TryGetValue(siteId, out window) || window == null) return false;
+            }
+            return await window.ArchiveThreadAsync(threadUrl);
+        }
         public async Task SendAsync(string text, Action<string> onDelta, CancellationToken token)
         {
             if (onDelta == null || site == null) return;
@@ -91,7 +115,17 @@ namespace IslandShot
                     window.SetAttachments(pendingFiles);
                     pendingFiles = null;
                 }
+                window.SetThread(pendingThreadUrl, pendingNewChat);
+                pendingThreadUrl = null;
+                pendingNewChat = false;
+
                 await window.AskAsync(text, onDelta, token);
+
+                // 把这次落到的网页会话 URL 报回去，让上层记进 webthreads.txt
+                if (onThreadDiscovered != null && !string.IsNullOrEmpty(window.DiscoveredUrl))
+                {
+                    onThreadDiscovered(window.DiscoveredUrl);
+                }
             }
             catch (OperationCanceledException exception)
             {
@@ -177,6 +211,137 @@ namespace IslandShot
 
         // ---------------------------------------------------------- 一问一答
 
+        // 归档网页端那条会话（删除胶囊会话时调用）。
+        // 只按"链接 href 完全等于这条会话的 URL"来找，不靠标题猜，避免归档错人的记录。
+        internal async Task<bool> ArchiveThreadAsync(string threadUrl)
+        {
+            if (string.IsNullOrEmpty(threadUrl) || view == null || view.CoreWebView2 == null) return false;
+            try
+            {
+                // 归档按钮在左侧历史列表里，先回站点根
+                string root = site.Url;
+                if (!string.Equals(view.CoreWebView2.Source, root, StringComparison.OrdinalIgnoreCase))
+                {
+                    view.CoreWebView2.Navigate(root);
+                    await WaitDocumentReadyAsync(CancellationToken.None);
+                    await Task.Delay(2500);
+                }
+
+                string js =
+                    "(function(){" +
+                    "var target='" + threadUrl.Replace("'", "\\'") + "';" +
+                    "var links=document.querySelectorAll('a[href]');" +
+                    "for(var i=0;i<links.length;i++){" +
+                    "if(links[i].href!==target)continue;" +
+                    "var node=links[i];" +
+                    "for(var up=0;up<6&&node;up++){" +
+                    "var btn=node.querySelector('[aria-label=\"归档对话\"],[aria-label=\"归档\"],[title=\"归档对话\"]');" +
+                    "if(btn){btn.click();return 'archived';}" +
+                    "node=node.parentElement;}}" +
+                    "return 'not-found';})()";
+                string result = await RunScript(js);
+                Log("archive thread: " + result);
+                return string.Equals(result, "archived", StringComparison.Ordinal);
+            }
+            catch (Exception exception)
+            {
+                Log("archive failed: " + exception.Message);
+                return false;
+            }
+        }
+
+
+        // 胶囊会话对应的网页会话 URL（空 = 还没绑定）
+        internal string ThreadUrl;
+        internal bool WantNewChat;
+        // 发完之后网页当前所在的会话 URL（上层拿去落盘）
+        internal string DiscoveredUrl;
+
+        internal void SetThread(string url, bool newChat)
+        {
+            ThreadUrl = url;
+            WantNewChat = newChat;
+        }
+
+        // 有绑定就导航回那条会话；没有就先开一条新对话
+        async Task EnsureThreadAsync(CancellationToken token)
+        {
+            if (view == null || view.CoreWebView2 == null) return;
+            string current = view.CoreWebView2.Source ?? "";
+
+            if (!string.IsNullOrEmpty(ThreadUrl) && LooksLikeThreadUrl(ThreadUrl)
+                && !string.Equals(current, ThreadUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                Log("restore web thread " + ThreadUrl);
+                view.CoreWebView2.Navigate(ThreadUrl);
+                await WaitDocumentReadyAsync(token);
+                await Task.Delay(1500);   // 等历史消息渲染完
+                return;
+            }
+
+            if (WantNewChat || string.IsNullOrEmpty(ThreadUrl))
+            {
+                // 没有绑定却停在某条旧会话上：必须开新对话，否则会写进别人的会话里
+                bool onConversation = current.IndexOf("/chat/", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (WantNewChat || onConversation)
+                {
+                    string result = await RunScript(NewChatJs());
+                    Log("new chat: " + result);
+                    await Task.Delay(900);
+                }
+            }
+        }
+
+        // 点站点自己的"新对话"（豆包/DS 文案不同，这里都覆盖）
+        string NewChatJs()
+        {
+            return "(function(){" +
+                   "var want=['新对话','开启新对话','新建对话','新会话'];" +
+                   "var all=document.querySelectorAll('button,[role=button],div,span,a');" +
+                   "var best=null;" +
+                   "for(var i=0;i<all.length;i++){var el=all[i];" +
+                   "var t=(el.innerText||'').trim();" +
+                   "if(t.length===0||t.length>12)continue;" +
+                   "for(var w=0;w<want.length;w++){if(t===want[w]){best=el;break;}}" +
+                   "if(best)break;}" +
+                   "if(!best)return 'not-found';" +
+                   "var target=best;" +
+                   "for(var k=0;k<3&&target;k++){" +
+                   "if(target.tagName==='BUTTON'||target.getAttribute('role')==='button')break;" +
+                   "target=target.parentElement;}" +
+                   "if(!target)target=best;" +
+                   "target.click();return 'clicked';})()";
+        }
+
+        // 发完之后把当前 URL 记下来（豆包是 /chat/<id>，DS 是 /a/chat/s/<id>）
+        // 注意：刚点完发送那一瞬间 URL 还是 /chat/（没有 id），不能当会话地址用
+        void CaptureThreadUrl()
+        {
+            try
+            {
+                if (view == null || view.CoreWebView2 == null) return;
+                string url = view.CoreWebView2.Source;
+                if (!LooksLikeThreadUrl(url)) return;
+                if (string.Equals(url, DiscoveredUrl, StringComparison.OrdinalIgnoreCase)) return;
+                DiscoveredUrl = url;
+                Log("thread url = " + url);
+            }
+            catch (Exception) { }
+        }
+
+        // 会话地址 = 路径里带 /chat/，且最后一段长度 >= 6（空路径 /chat/ 不算）
+        static bool LooksLikeThreadUrl(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return false;
+            if (url.IndexOf("/chat/", StringComparison.OrdinalIgnoreCase) < 0) return false;
+            int end = url.Length;
+            while (end > 0 && (url[end - 1] == '/' || url[end - 1] == '?')) end--;
+            if (end <= 0) return false;
+            int slash = url.LastIndexOf('/', end - 1);
+            if (slash < 0) return false;
+            return (end - slash - 1) >= 6;
+        }
+
         static void Log(string message)
         {
             try
@@ -193,6 +358,9 @@ namespace IslandShot
         {
             await EnsureReadyAsync(token);
             await EnsureLoggedInAsync(token);
+
+            // 0) 胶囊会话 ↔ 网页会话：有记录就回那条，没有就开一条新的
+            await EnsureThreadAsync(token);
 
             // 1) 先确保网页那边停下来：用户按 Esc 只停了我们这边的读取，网页还在继续生成。
             //    这里直接点一次"停止/发送"位置那个按钮 —— 生成中就停掉，空闲时输入框是空的，
@@ -240,6 +408,10 @@ namespace IslandShot
             await Task.Delay(120);
             string sendResult = await RunScript(SendJs());
             Log("type=" + typed + " send=" + sendResult);
+
+            // 发出去之后 URL 会变成这条会话的地址，记下来（下次回到同一条）
+            await Task.Delay(1200);
+            CaptureThreadUrl();
             if (sendResult != null && sendResult.StartsWith("NO-SEND", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("网页版没找到发送按钮（可能改版了），先用 API。");
@@ -270,6 +442,7 @@ namespace IslandShot
                 }
                 polls++;
                 if (polls <= 80) Log("poll " + polls + " len=" + current.Length);
+                if (polls % 5 == 0) CaptureThreadUrl();
 
                 if (current != last)
                 {
