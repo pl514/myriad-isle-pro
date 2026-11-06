@@ -389,6 +389,8 @@ s20261106191734|deepseek|https://chat.deepseek.com/a/chat/s/443fdc4b-...
     **重启程序**后再问一句，日志里应出现 `restore web thread <同一 URL>`
 18. **删除时归档**：删掉上面那条会话 → 日志出现 `archive thread: archived` 或 `not-found`，
     `webthreads.txt` 里那行被清掉
+19. **一键清空图片**：图片面板右上角「清空图片」→ 第一下变「确认清空?」→ 3.5 秒内再点 →
+    卡片清空、`data\images` 和 `data\screenshots` 里的文件被删、空状态提示出现
 
 ---
 

@@ -52,7 +52,7 @@ namespace IslandShot
         ScrollViewer textScroller;
         StackPanel textList;
         TextBlock textEmpty;
-        Button imageTab, textTab, textClear;
+        Button imageTab, textTab, textClear, imageClear;
         bool showingText;
         bool capsuleClosed;
         string lastClipboardHash = "";
@@ -681,6 +681,7 @@ namespace IslandShot
                 textTab.Foreground = text ? Brushes.White : new SolidColorBrush(Color.FromRgb(167, 159, 196));
             }
             if (textClear != null) textClear.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
+            if (imageClear != null) imageClear.Visibility = text ? Visibility.Collapsed : Visibility.Visible;
             MoveTabPill(text, IsLoaded);
             FadeEmptyStates();
             if (text) AnimateTextCards();
@@ -721,6 +722,8 @@ namespace IslandShot
             textClear = ToolButton("清空", 10);
             textClear.Visibility = Visibility.Collapsed;
             textClear.Click += delegate { ClearClipboardText(); };
+            imageClear = ToolButton("清空图片", 10);
+            imageClear.Click += delegate { ConfirmClearImages(); };
             var add = ToolButton("添加图片", 12);
             add.Click += delegate { AddImagesDialog(); };
             var close = new Button
@@ -744,6 +747,7 @@ namespace IslandShot
                 "</ControlTemplate>");
             close.Click += delegate { CollapseLater(); };
             actions.Children.Add(textClear);
+            actions.Children.Add(imageClear);
             actions.Children.Add(add);
             actions.Children.Add(close);
             // 页签 + 工具坞放在同一行左侧，动作按钮仍靠右
@@ -2030,6 +2034,65 @@ namespace IslandShot
             cards.Children.Clear();
             empty.Visibility = Visibility.Visible;
             SaveImages();
+        }
+
+        // 一键清空图片：两段式（第一下变"确认清空?"，3.5 秒内再点才真删）
+        DateTime imageClearArmedAt = DateTime.MinValue;
+
+        void ConfirmClearImages()
+        {
+            if ((DateTime.UtcNow - imageClearArmedAt).TotalSeconds > 3)
+            {
+                imageClearArmedAt = DateTime.UtcNow;
+                if (imageClear != null) imageClear.Content = "确认清空?";
+                ShowToolMessage("清空图片", "再点一次就删掉所有图片，以及硬盘上的截图副本。");
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3.5) };
+                timer.Tick += delegate
+                {
+                    timer.Stop();
+                    imageClearArmedAt = DateTime.MinValue;
+                    if (imageClear != null) imageClear.Content = "清空图片";
+                };
+                timer.Start();
+                return;
+            }
+
+            imageClearArmedAt = DateTime.MinValue;
+            if (imageClear != null) imageClear.Content = "清空图片";
+            ClearAllImages();
+        }
+
+        void ClearAllImages()
+        {
+            int count = cards.Children.Count;
+            cards.Children.Clear();
+            SaveImages();
+            if (empty != null) empty.Visibility = showingText ? Visibility.Collapsed : Visibility.Visible;
+
+            // 删掉 app 自己目录里的图片副本；用户自己电脑上的原图不动
+            int deleted = 0;
+            string[] folders = new string[]
+            {
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "images"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "screenshots")
+            };
+            foreach (string folder in folders)
+            {
+                try
+                {
+                    if (!Directory.Exists(folder)) continue;
+                    foreach (string file in Directory.GetFiles(folder))
+                    {
+                        try { File.Delete(file); deleted++; }
+                        catch (Exception) { }
+                    }
+                }
+                catch (Exception) { }
+            }
+
+            CancelAiPick();
+            ClearAiAttachmentsFromDeletedFiles();
+            ShowToolMessage("清空图片", "清掉 " + count + " 张图片，硬盘上删了 " + deleted + " 个文件。");
         }
 
         // 给"发送到 AI"用：当前图片面板里所有图片的路径（视频不算）

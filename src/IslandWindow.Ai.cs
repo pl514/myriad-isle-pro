@@ -1281,6 +1281,14 @@ namespace IslandShot
             return bitmap;
         }
 
+        // 图片面板"清空图片"之后：输入框上方挂着的图也一起清掉（文件已经没了）
+        internal void ClearAiAttachmentsFromDeletedFiles()
+        {
+            if (aiAttachments.Count == 0) return;
+            aiAttachments.Clear();
+            RenderAiAttachments();
+        }
+
         // 网页版使用注意（点小球右边那个「!」）
         Border BuildAiRulesSheet()
         {
