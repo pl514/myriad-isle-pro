@@ -1962,6 +1962,13 @@ namespace IslandShot
             message.Body.Children.Clear();
 
             string text = message.Text == null ? "" : message.Text;
+
+            // 还没出第一个字：给个"思考中…"，否则空气泡看着像卡死了
+            if (text.Length == 0)
+            {
+                if (message.Streaming && !user) message.Body.Children.Add(BuildThinkingIndicator());
+                return;
+            }
             string[] parts = text.Split(new string[] { "```" }, StringSplitOptions.None);
             for (int i = 0; i < parts.Length; i++)
             {
@@ -1984,6 +1991,40 @@ namespace IslandShot
                     });
                 }
             }
+        }
+
+        // 等待回答时的占位：一个呼吸的小圆点 + 思考中…
+        FrameworkElement BuildThinkingIndicator()
+        {
+            var dot = new Border
+            {
+                Width = 7,
+                Height = 7,
+                CornerRadius = new CornerRadius(3.5),
+                Background = new SolidColorBrush(AiAccentColor),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            try
+            {
+                var pulse = new System.Windows.Media.Animation.DoubleAnimation(0.25, 1.0, TimeSpan.FromMilliseconds(650));
+                pulse.AutoReverse = true;
+                pulse.RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever;
+                dot.BeginAnimation(OpacityProperty, pulse);
+            }
+            catch (Exception) { }
+
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 1) };
+            row.Children.Add(dot);
+            row.Children.Add(new TextBlock
+            {
+                Text = "思考中…",
+                FontFamily = AiFont,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromArgb(180, 208, 202, 232)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return row;
         }
 
         FrameworkElement BuildCodeBlock(string raw)
