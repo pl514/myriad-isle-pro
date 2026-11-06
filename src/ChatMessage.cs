@@ -6,7 +6,7 @@ namespace IslandShot
 {
     // ---------------------------------------------------------------------
     // AI 面板的数据层：消息 + 会话。
-    // 这一阶段全部放在内存里，退出程序即清空（落盘是下一阶段的活）。
+    // 内存里是唯一真身，chats.txt 只是快照（M5 起一批一批追加，见 ChatStore）。
     // ---------------------------------------------------------------------
     internal enum ChatRole
     {
@@ -20,6 +20,7 @@ namespace IslandShot
         public string Text = "";
         public bool Streaming;
         public bool Failed;
+        public bool Persisted;   // 已经写进 chats.txt
 
         // 渲染出来的气泡和气泡里的文字容器：流式时只更新这个容器，不重建整个会话。
         public Border Bubble;

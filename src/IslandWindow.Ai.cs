@@ -793,8 +793,23 @@ namespace IslandShot
 
         void InitAiSessions()
         {
-            aiCurrent = new ChatSession { Id = "session-1", Title = "新对话", Provider = aiProvider };
-            aiSessions.Add(aiCurrent);
+            // M5：先把上次的会话读回来（chats.txt），没有就开一个新的
+            List<ChatSession> loaded = ChatStore.Load();
+            aiSessions.Clear();
+            if (loaded.Count > 0)
+            {
+                aiSessions.AddRange(loaded);
+                aiCurrent = aiSessions[aiSessions.Count - 1];
+            }
+            else
+            {
+                aiCurrent = new ChatSession();
+                aiCurrent.Id = "s" + DateTime.Now.ToString("yyyyMMddHHmmss");
+                aiCurrent.Title = "新对话";
+                aiCurrent.Provider = aiProvider;
+                aiSessions.Add(aiCurrent);
+            }
+
             RenderAiSessions();
             RenderChat();
             UpdateAiOrbSelection();
@@ -990,17 +1005,20 @@ namespace IslandShot
                 FocusAiInput();
                 return;
             }
-            var session = new ChatSession
-            {
-                Id = "session-" + (aiSessions.Count + 1),
-                Title = "新对话",
-                Provider = aiProvider
-            };
+            var session = new ChatSession();
+            session.Id = NewSessionId();
+            session.Title = "新对话";
+            session.Provider = aiProvider;
             aiSessions.Add(session);
             aiCurrent = session;
             RenderAiSessions();
             RenderChat();
             FocusAiInput();
+        }
+
+        static string NewSessionId()
+        {
+            return "s" + DateTime.Now.ToString("yyyyMMddHHmmss") + Guid.NewGuid().ToString("N").Substring(0, 4);
         }
 
         void SwitchAiSession(ChatSession session)
@@ -1156,7 +1174,10 @@ namespace IslandShot
 
             if (aiSessions.Count == 0)
             {
-                aiCurrent = new ChatSession { Id = "session-1", Title = "新对话", Provider = aiProvider };
+                aiCurrent = new ChatSession();
+                aiCurrent.Id = NewSessionId();
+                aiCurrent.Title = "新对话";
+                aiCurrent.Provider = aiProvider;
                 aiSessions.Add(aiCurrent);
             }
             else if (session == aiCurrent)
@@ -1168,6 +1189,7 @@ namespace IslandShot
             {
                 SetAiProviderQuiet(aiCurrent.Provider);
             }
+            ChatStore.SaveAll(aiSessions);   // 删除要整体重写，否则文件里还留着
             RenderAiSessions();
             RenderChat();
         }
@@ -1401,7 +1423,25 @@ namespace IslandShot
             {
                 aiCurrent.Messages.Remove(message);
             }
+            else
+            {
+                PersistPendingMessages();
+            }
             RenderChat();
+        }
+
+        // 把还没落盘的消息按顺序追加到 chats.txt（用户消息和回答一起写）
+        void PersistPendingMessages()
+        {
+            if (aiCurrent == null) return;
+            for (int i = 0; i < aiCurrent.Messages.Count; i++)
+            {
+                ChatMessage item = aiCurrent.Messages[i];
+                if (item == null || item.Persisted || item.Streaming) continue;
+                if (string.IsNullOrEmpty(item.Text)) continue;
+                ChatStore.Append(aiCurrent, item);
+                item.Persisted = true;
+            }
         }
 
         void StopAiStream()
