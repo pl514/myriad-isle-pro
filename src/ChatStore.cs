@@ -74,7 +74,7 @@ namespace IslandShot
 
                     var message = new ChatMessage();
                     message.Role = role == "user" ? ChatRole.User : ChatRole.Ai;
-                    message.Text = text;
+                    SplitPayload(text, message);
                     message.Persisted = true;
                     session.Messages.Add(message);
                 }
@@ -135,10 +135,40 @@ namespace IslandShot
         static string BuildLine(ChatSession session, ChatMessage message)
         {
             string text = message == null || message.Text == null ? "" : message.Text;
-            string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
+            // 图片用 [img] 前缀写在正文前面（行格式不用改，旧数据天然兼容）
+            StringBuilder payload = new StringBuilder();
+            if (message != null && message.Images.Count > 0)
+            {
+                for (int i = 0; i < message.Images.Count; i++)
+                {
+                    string file = message.Images[i];
+                    if (string.IsNullOrEmpty(file)) continue;
+                    payload.Append("[img]").Append(file.Replace("\r", "").Replace("\n", "")).Append('\n');
+                }
+            }
+            payload.Append(text);
+
+            string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(payload.ToString()));
             return Safe(session.Id) + "|" + Safe(session.Title) + "|"
                 + (message != null && message.Role == ChatRole.User ? "user" : "ai") + "|"
                 + base64 + "|" + Stamp();
+        }
+
+        // 把正文前面的 [img] 行拆出来
+        internal static void SplitPayload(string payload, ChatMessage message)
+        {
+            if (message == null || string.IsNullOrEmpty(payload)) return;
+            int offset = 0;
+            while (payload.Length - offset > 5
+                && string.CompareOrdinal(payload, offset, "[img]", 0, 5) == 0)
+            {
+                int eol = payload.IndexOf('\n', offset);
+                if (eol < 0) break;
+                string file = payload.Substring(offset + 5, eol - offset - 5).Trim();
+                if (file.Length > 0) message.Images.Add(file);
+                offset = eol + 1;
+            }
+            message.Text = payload.Substring(offset);
         }
 
         static string Stamp()

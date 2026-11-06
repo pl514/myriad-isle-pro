@@ -568,12 +568,23 @@ namespace IslandShot
                 if (cleaned == tail) break;
                 tail = cleaned.TrimStart();
             }
-            // 「正在搜索 / 正在思考」这类是状态行，不是回答（豆包开了联网搜索会先显示一下）
+            // 「正在搜索图片 / 正在思考」这类是状态行，不是回答（豆包开了联网搜索会先显示一下）。
+            // 之前只做精确匹配，"正在搜索图片"这种变体照样被当成回答推出去、还会被判成"回答结束"。
+            if (LooksLikeStatus(tail)) return "";
+            return TrimTailNoise(tail);
+        }
+
+        static bool LooksLikeStatus(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            if (text.Length > 14) return false;          // 这么长的多半是真内容
             for (int i = 0; i < DbBusyHints.Length; i++)
             {
-                if (string.Equals(tail, DbBusyHints[i], StringComparison.Ordinal)) return "";
+                if (text.IndexOf(DbBusyHints[i], StringComparison.Ordinal) >= 0) return true;
             }
-            return TrimTailNoise(tail);
+            return text.IndexOf("正在", StringComparison.Ordinal) >= 0
+                || text.IndexOf("搜索中", StringComparison.Ordinal) >= 0
+                || text.IndexOf("思考中", StringComparison.Ordinal) >= 0;
         }
 
         // 豆包会在回答末尾挂"相关视频/相关推荐"和话题标签，从末尾切掉

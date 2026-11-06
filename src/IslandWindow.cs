@@ -1908,6 +1908,26 @@ namespace IslandShot
             SaveImages();
         }
 
+        // 给"发送到 AI"用：当前图片面板里所有图片的路径（视频不算）
+        internal List<string> CurrentImagePaths()
+        {
+            var list = new List<string>();
+            try
+            {
+                foreach (UIElement child in cards.Children)
+                {
+                    var border = child as Border;
+                    if (border == null) continue;
+                    string path = border.Tag as string;
+                    if (string.IsNullOrEmpty(path)) continue;
+                    if (IsVideoFile(path)) continue;
+                    list.Add(path);
+                }
+            }
+            catch (Exception) { }
+            return list;
+        }
+
         // 托盘菜单「以普通权限重新启动」：先让资源管理器拉起新实例，再退出自己。
         // 新实例在 Program 里会等最多 2.5 秒拿互斥体，避免和正在退出的旧实例抢不到。
         void RelaunchNormal()

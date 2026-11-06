@@ -22,6 +22,9 @@ namespace IslandShot
         public bool Failed;
         public bool Persisted;   // 已经写进 chats.txt
 
+        // 这条消息带的图片（本地路径）。落盘时编码在文本前面，见 ChatStore。
+        public readonly List<string> Images = new List<string>();
+
         // 渲染出来的气泡和气泡里的文字容器：流式时只更新这个容器，不重建整个会话。
         public Border Bubble;
         public StackPanel Body;
