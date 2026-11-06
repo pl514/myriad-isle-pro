@@ -302,6 +302,13 @@ namespace IslandShot
                 throw new InvalidOperationException("这个模型没有配接口地址，检查 data\\models.txt 的 baseUrl 列。");
             }
 
+            // 实验功能：baseUrl 写成 web://站点 就走网页版驱动（不需要 key）
+            if (model.BaseUrl.StartsWith("web://", StringComparison.OrdinalIgnoreCase))
+            {
+                string siteId = model.BaseUrl.Substring(6).Trim().TrimEnd('/');
+                return new WebBackend(WebSites.Find(siteId));
+            }
+
             string key = null;
             if (!string.IsNullOrEmpty(model.KeyRef))
             {
