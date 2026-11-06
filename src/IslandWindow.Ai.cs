@@ -2033,17 +2033,43 @@ namespace IslandShot
                 }
                 else
                 {
-                    message.Body.Children.Add(new TextBlock
-                    {
-                        Text = part,
-                        FontFamily = AiFont,
-                        FontSize = 13,
-                        LineHeight = 21,
-                        TextWrapping = TextWrapping.Wrap,
-                        Foreground = user ? Brushes.White : new SolidColorBrush(AiTextColor)
-                    });
+                    message.Body.Children.Add(BuildSelectableText(part, user));
                 }
             }
+        }
+
+        // 正文用只读 TextBox：这样可以鼠标拖选一段、Ctrl+C 复制，
+        // 不再只能靠气泡底下的「复制」整段拿走。
+        FrameworkElement BuildSelectableText(string text, bool user)
+        {
+            var box = new TextBox
+            {
+                Text = text,
+                IsReadOnly = true,
+                IsReadOnlyCaretVisible = false,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                Margin = new Thickness(0),
+                FontFamily = AiFont,
+                FontSize = 13,
+                Foreground = user ? Brushes.White : new SolidColorBrush(AiTextColor),
+                CaretBrush = user ? Brushes.White : new SolidColorBrush(AiTextColor),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                IsTabStop = false,
+                Cursor = Cursors.IBeam
+            };
+            // 滚轮交给外层聊天区，否则鼠标停在文字上滚不动
+            box.PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs e)
+            {
+                if (aiChatScroll == null) return;
+                e.Handled = true;
+                aiChatScroll.ScrollToVerticalOffset(aiChatScroll.VerticalOffset - e.Delta / 3.0);
+            };
+            return box;
         }
 
         // 等待回答时的占位：一个呼吸的小圆点 + 思考中…
@@ -2096,13 +2122,24 @@ namespace IslandShot
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(10, 8, 10, 8),
                 Margin = new Thickness(0, 4, 0, 4),
-                Child = new TextBlock
+                Child = new TextBox
                 {
+                    // 代码块也要能选中一段复制
                     Text = code,
+                    IsReadOnly = true,
+                    IsReadOnlyCaretVisible = false,
+                    AcceptsReturn = true,
+                    Background = Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    Padding = new Thickness(0),
                     FontFamily = new FontFamily("Consolas"),
                     FontSize = 12,
                     Foreground = new SolidColorBrush(Color.FromRgb(214, 218, 230)),
-                    TextWrapping = TextWrapping.Wrap
+                    TextWrapping = TextWrapping.Wrap,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    IsTabStop = false,
+                    Cursor = Cursors.IBeam
                 }
             };
         }

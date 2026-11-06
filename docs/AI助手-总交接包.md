@@ -188,6 +188,7 @@ s20261106191734|deepseek|https://chat.deepseek.com/a/chat/s/443fdc4b-...
 | 历史会话右键 → 删除 | `BuildAiSessionMenu` |
 | 输入法开着时，第一次回车是选词、第二次才发送 | `aiImeComposing` + `TextCompositionManager` |
 | 流式中再点发送 = 先停再发 | `SubmitAiInput` |
+| 回答正文**可以拖选一段复制**（只读 TextBox，不是 TextBlock） | `BuildSelectableText` |
 | **胶囊会话绑定一个网页会话**（重启也回同一条） | `WebThreadStore` + `WebChatWindow.EnsureThreadAsync` |
 | 删除胶囊会话时**顺手归档网页端那条** | `DeleteAiSession` → `WebBackend.TryArchiveAsync` |
 
