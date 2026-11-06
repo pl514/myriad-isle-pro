@@ -637,7 +637,7 @@ namespace IslandShot
 
             var popup = new Border
             {
-                Width = 240,
+                Width = 280,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Bottom,
                 Margin = new Thickness(0, 0, 98, 52),
@@ -655,7 +655,7 @@ namespace IslandShot
 
         // ---------------------------------------------------------- 推理等级滑块
 
-        const double AiSliderWidth = 196;
+        const double AiSliderWidth = 244;
         const double AiSliderPad = 6;
         static readonly string[] AiReasoningLevels = new string[] { "低", "中", "高", "极高", "最高" };
 
@@ -706,7 +706,7 @@ namespace IslandShot
             aiReasoningSlider = new Canvas
             {
                 Width = AiSliderWidth,
-                Height = 18,
+                Height = 20,
                 Margin = new Thickness(8, 0, 8, 2),
                 Cursor = Cursors.Hand,
                 Background = Brushes.Transparent
@@ -715,26 +715,27 @@ namespace IslandShot
             var track = new Border
             {
                 Width = AiSliderWidth,
-                Height = 3,
-                CornerRadius = new CornerRadius(1.5),
-                Background = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255))
+                Height = 4,
+                CornerRadius = new CornerRadius(2),
+                // 整条轨道用主色的暗版，而不是灰白——这样"未选段"也属于这套配色
+                Background = new SolidColorBrush(Color.FromArgb(70, 124, 108, 242))
             };
-            Canvas.SetTop(track, 8);
+            Canvas.SetTop(track, 9);
             aiReasoningSlider.Children.Add(track);
 
             aiReasoningFill = new Border
             {
                 Width = AiSliderWidth,
-                Height = 3,
-                CornerRadius = new CornerRadius(1.5),
+                Height = 4,
+                CornerRadius = new CornerRadius(2),
                 Background = new LinearGradientBrush(
-                    Color.FromRgb(124, 108, 242), Color.FromRgb(176, 156, 255),
+                    Color.FromRgb(124, 108, 242), Color.FromRgb(186, 166, 255),
                     new Point(0, 0), new Point(1, 0)),
                 RenderTransformOrigin = new Point(0, 0.5)
             };
             aiReasoningFillScale = new ScaleTransform(1, 1);
             aiReasoningFill.RenderTransform = aiReasoningFillScale;
-            Canvas.SetTop(aiReasoningFill, 8);
+            Canvas.SetTop(aiReasoningFill, 9);
             aiReasoningSlider.Children.Add(aiReasoningFill);
 
             for (int i = 0; i < AiReasoningLevels.Length; i++)
@@ -744,24 +745,24 @@ namespace IslandShot
                     Width = 3,
                     Height = 3,
                     CornerRadius = new CornerRadius(1.5),
-                    Background = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255))
+                    Background = new SolidColorBrush(Color.FromArgb(90, 255, 255, 255))
                 };
                 Canvas.SetLeft(dot, ReasoningStopX(i) - 1.5);
-                Canvas.SetTop(dot, 8);
+                Canvas.SetTop(dot, 9.5);
                 aiReasoningSlider.Children.Add(dot);
             }
 
             aiReasoningKnob = new Border
             {
-                Width = 12,
-                Height = 12,
-                CornerRadius = new CornerRadius(6),
+                Width = 14,
+                Height = 14,
+                CornerRadius = new CornerRadius(7),
                 Background = Brushes.White,
-                Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 0, Opacity = 0.85, Color = AiAccentColor }
+                Effect = new DropShadowEffect { BlurRadius = 12, ShadowDepth = 0, Opacity = 0.9, Color = AiAccentColor }
             };
-            aiReasoningKnobMove = new TranslateTransform(ReasoningStopX(aiReasoningIndex) - 6, 0);
+            aiReasoningKnobMove = new TranslateTransform(ReasoningStopX(aiReasoningIndex) - 7, 0);
             aiReasoningKnob.RenderTransform = aiReasoningKnobMove;
-            Canvas.SetTop(aiReasoningKnob, 3);
+            Canvas.SetTop(aiReasoningKnob, 4);
             aiReasoningKnob.IsHitTestVisible = false;
             aiReasoningSlider.Children.Add(aiReasoningKnob);
 
@@ -818,7 +819,7 @@ namespace IslandShot
             if (aiReasoningKnobMove != null)
             {
                 Motion.AnimateDouble(aiReasoningKnobMove, TranslateTransform.XProperty,
-                    aiReasoningKnobMove.X, ReasoningStopX(index) - 6, changed ? 150 : 0, Motion.Enter, 0, null);
+                    aiReasoningKnobMove.X, ReasoningStopX(index) - 7, changed ? 150 : 0, Motion.Enter, 0, null);
             }
         }
 
