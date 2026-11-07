@@ -97,7 +97,7 @@ namespace IslandShot
             // 球的容器：宽度固定，避免展开/收回时右边按钮位移
             orbSlot = new Grid
             {
-                Width = 3 * 28 + 3 * 8,
+                Width = 5 * 28 + 5 * 8,
                 Height = 28,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(10, 0, 0, 0),
@@ -134,6 +134,22 @@ namespace IslandShot
                 ColorFrom = Color.FromRgb(124, 108, 242),
                 ColorTo = Color.FromRgb(179, 157, 255),
                 Launch = LaunchAiChat
+            });
+            orbTools.Add(new CapsuleTool
+            {
+                Id = "wechat",
+                Name = "微信",
+                ColorFrom = Color.FromRgb(7, 193, 96),
+                ColorTo = Color.FromRgb(16, 185, 129),
+                Launch = LaunchWeChat
+            });
+            orbTools.Add(new CapsuleTool
+            {
+                Id = "qq",
+                Name = "QQ",
+                ColorFrom = Color.FromRgb(18, 183, 245),
+                ColorTo = Color.FromRgb(56, 148, 255),
+                Launch = LaunchQq
             });
             orbTools.Add(new CapsuleTool
             {
@@ -229,6 +245,80 @@ namespace IslandShot
                     Canvas.SetTop(bar, y[i] + (12.6 - h[i]) * 0.35);
                     canvas.Children.Add(bar);
                 }
+                return canvas;
+            }
+
+            if (id == "wechat")
+            {
+                // 两个叠在一起的对话气泡
+                var big = new Border
+                {
+                    Width = 10.5,
+                    Height = 8.5,
+                    CornerRadius = new CornerRadius(4.2),
+                    Background = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255))
+                };
+                Canvas.SetLeft(big, 1.2);
+                Canvas.SetTop(big, 2.4);
+                canvas.Children.Add(big);
+
+                var small = new Border
+                {
+                    Width = 8.5,
+                    Height = 7,
+                    CornerRadius = new CornerRadius(3.5),
+                    Background = new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)),
+                    BorderBrush = new SolidColorBrush(Color.FromArgb(120, 20, 120, 70)),
+                    BorderThickness = new Thickness(0.8)
+                };
+                Canvas.SetLeft(small, 5.6);
+                Canvas.SetTop(small, 6.6);
+                canvas.Children.Add(small);
+                return canvas;
+            }
+
+            if (id == "qq")
+            {
+                // 简化的企鹅：头 + 身体
+                var body = new System.Windows.Shapes.Ellipse
+                {
+                    Width = 11,
+                    Height = 12,
+                    Fill = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255))
+                };
+                Canvas.SetLeft(body, 2.5);
+                Canvas.SetTop(body, 3.0);
+                canvas.Children.Add(body);
+
+                var head = new System.Windows.Shapes.Ellipse
+                {
+                    Width = 7.6,
+                    Height = 7.6,
+                    Fill = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255))
+                };
+                Canvas.SetLeft(head, 4.2);
+                Canvas.SetTop(head, 1.2);
+                canvas.Children.Add(head);
+
+                var eyeLeft = new System.Windows.Shapes.Ellipse
+                {
+                    Width = 1.2,
+                    Height = 1.2,
+                    Fill = new SolidColorBrush(Color.FromArgb(220, 20, 40, 70))
+                };
+                Canvas.SetLeft(eyeLeft, 5.6);
+                Canvas.SetTop(eyeLeft, 4.0);
+                canvas.Children.Add(eyeLeft);
+
+                var eyeRight = new System.Windows.Shapes.Ellipse
+                {
+                    Width = 1.2,
+                    Height = 1.2,
+                    Fill = new SolidColorBrush(Color.FromArgb(220, 20, 40, 70))
+                };
+                Canvas.SetLeft(eyeRight, 8.2);
+                Canvas.SetTop(eyeRight, 4.0);
+                canvas.Children.Add(eyeRight);
                 return canvas;
             }
 
@@ -422,7 +512,18 @@ namespace IslandShot
 
         void LaunchMusic()
         {
-            ShowToolMessage("音乐", "入口已就位。第三方音乐控件还没定，接进来前先占位。");
+            OpenMusicPanel();
+        }
+
+        // 微信 / QQ：不嵌内容，只把客户端窗口"吸"到胶囊下方
+        void LaunchWeChat()
+        {
+            ToggleMessengerWindow("wechat");
+        }
+
+        void LaunchQq()
+        {
+            ToggleMessengerWindow("qq");
         }
     }
 }
