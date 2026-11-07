@@ -385,5 +385,47 @@ namespace IslandShot
             }
             return false;
         }
+
+        // 闪烁窗口的进程号 → 是哪个客户端
+        static string MessengerIdByPid(int pid)
+        {
+            try
+            {
+                using (Process process = Process.GetProcessById(pid))
+                {
+                    string name = process.ProcessName;
+                    foreach (string candidate in WeChatApp.ProcessNames)
+                    {
+                        if (string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase)) return "wechat";
+                    }
+                    foreach (string candidate in QqApp.ProcessNames)
+                    {
+                        if (string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase)) return "qq";
+                    }
+                }
+            }
+            catch (Exception) { }
+            return null;
+        }
+
+        // 点提示：把客户端窗口叫到前台；找不到就启动它
+        void OpenMessengerApp(string id)
+        {
+            MessengerApp app = MessengerById(id);
+            IntPtr hwnd = FindMessengerWindow(app);
+            if (hwnd != IntPtr.Zero && IsMainSized(hwnd))
+            {
+                if (!IsWindowVisible(hwnd))
+                {
+                    ShowWindow(hwnd, SwShow);
+                    ShowWindow(hwnd, SwRestore);
+                }
+                SetForegroundWindow(hwnd);
+                MessengerLog("open " + id + " -> foreground hwnd=" + hwnd);
+                return;
+            }
+            MessengerLog("open " + id + " -> no window, activate app");
+            ActivateApp(app);
+        }
     }
 }

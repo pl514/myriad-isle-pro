@@ -74,6 +74,8 @@ namespace IslandShot
         double capsuleDragLeft;
         double capsuleDragCursorX;
         bool capsulePressed;
+        bool capsuleDoubleClick;
+        readonly List<DependencyObject> capsuleMiniButtons = new List<DependencyObject>();
         bool capsuleMoved;
         DispatcherTimer dragTimer;
         DispatcherTimer collapseTimer;
@@ -117,12 +119,14 @@ namespace IslandShot
             capsule = BuildCapsule();
             panel = BuildPanel();
             aiPanel = BuildAiPanel();
+            musicPanel = BuildMusicPanel();
             SetTab(false);
             RenderTextHistory();
             InitAiSessions();
             root.Children.Add(capsule);
             root.Children.Add(panel);
             root.Children.Add(aiPanel);
+            root.Children.Add(musicPanel);
             Content = root;
 
             AttachCapsuleGestures();
@@ -130,8 +134,8 @@ namespace IslandShot
             PreviewMouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
             {
                 if (!expanded) return;
-                // AI 状态下点空白处不收起：只有 × 或 Esc 能关（用户明确要求）
-                if (aiVisible) return;
+                // AI / 音乐状态下点空白处不收起：只有 × 或 Esc 能关（用户明确要求）
+                if (aiVisible || musicVisible) return;
                 if (panel.IsMouseOver) return;
                 if (aiPanel != null && aiPanel.IsMouseOver) return;
                 if (aiStreaming) return;
@@ -142,12 +146,12 @@ namespace IslandShot
             };
             Deactivated += delegate
             {
-                if (expanded && !aiVisible && !aiStreaming && !capturing && !suppressDeactivate && !dragOut) SetExpanded(false);
+                if (expanded && !aiVisible && !musicVisible && !aiStreaming && !capturing && !suppressDeactivate && !dragOut) SetExpanded(false);
             };
             PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs e)
             {
                 if (!expanded) return;
-                if (aiVisible) return;   // 聊天区自己滚，别被图片面板的平滑滚动接管
+                if (aiVisible || musicVisible) return;   // 聊天区 / 歌单自己滚，别被图片面板的平滑滚动接管
                 if (showingText && textScroller != null)
                 {
                     GlideText(-e.Delta);
@@ -198,7 +202,7 @@ namespace IslandShot
                     {
                         Dispatcher.BeginInvoke(new Action(delegate
                         {
-                            if (expanded && !dragOut && !aiVisible && !aiStreaming) SetExpanded(false);
+                            if (expanded && !dragOut && !aiVisible && !musicVisible && !aiStreaming) SetExpanded(false);
                         }));
                     });
                 mouseHook.Start();
@@ -236,6 +240,7 @@ namespace IslandShot
             };
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
+                MusicDebug("esc key=" + e.Key + " expanded=" + expanded + " music=" + musicVisible + " ai=" + aiVisible);
                 if (e.Key != Key.Escape) return;
                 if (aiVisible)
                 {
@@ -244,6 +249,20 @@ namespace IslandShot
                     if (aiAddSheet != null && aiAddSheet.Visibility == Visibility.Visible) { CloseAiAddSheet(); e.Handled = true; return; }
                     if (aiChipOpen) { CloseAiChip(); e.Handled = true; return; }
                     if (aiStreaming) { StopAiStream(); e.Handled = true; return; }
+                }
+                if (musicVisible)
+                {
+                    // 已登录时那张卡只是"换平台"，Esc 先退卡；没登录时它就是主体，Esc 直接收面板
+                    if (musicLoginOverlay != null && musicLoginOverlay.Visibility == Visibility.Visible
+                        && MusicPlatforms.Find(musicPlatformId) != null)
+                    {
+                        HideMusicLoginPicker();
+                        e.Handled = true;
+                        return;
+                    }
+                    CloseMusicPanel();
+                    e.Handled = true;
+                    return;
                 }
                 if (expanded) { SetExpanded(false); e.Handled = true; }
             };
@@ -370,6 +389,53 @@ namespace IslandShot
             return null;
         }
 
+        // 剪贴板哈希落盘：否则每次重启都把剪贴板里那张旧图当成新图再存一遍
+        static string ClipboardHashPath
+        {
+            get { return Path.Combine(AiConfigStore.DataDir, "clipboard-hash.txt"); }
+        }
+
+        static bool IsKnownClipboardHash(string hash)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(hash)) return false;
+                string path = ClipboardHashPath;
+                if (!File.Exists(path)) return false;
+                foreach (string line in File.ReadAllLines(path))
+                {
+                    string text = line == null ? "" : line.Trim();
+                    // 保留最近若干条，避免文件无限长
+                    if (text.Length > 0 && string.Equals(text, hash, StringComparison.Ordinal)) return true;
+                }
+            }
+            catch (Exception) { }
+            return false;
+        }
+
+        static void SaveClipboardHash(string hash)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(hash)) return;
+                string path = ClipboardHashPath;
+                string folder = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(folder) && !Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                var lines = new List<string>();
+                if (File.Exists(path))
+                {
+                    foreach (string line in File.ReadAllLines(path))
+                    {
+                        string text = line == null ? "" : line.Trim();
+                        if (text.Length > 0 && lines.Count < 40) lines.Add(text);
+                    }
+                }
+                lines.Insert(0, hash);
+                File.WriteAllLines(path, lines.ToArray(), new UTF8Encoding(false));
+            }
+            catch (Exception) { }
+        }
+
         void HandleClipboardUpdate()
         {
             if (clipboardTimer == null)
@@ -406,7 +472,10 @@ namespace IslandShot
                     string hash;
                     using (var sha = SHA256.Create()) hash = Convert.ToBase64String(sha.ComputeHash(bytes));
                     if (hash == lastClipboardHash) return;
+                    // 同一张图以前存过（换个会话/重启后也算）：不再重复落盘
+                    if (IsKnownClipboardHash(hash)) return;
                     lastClipboardHash = hash;
+                    SaveClipboardHash(hash);
                     string folder = Path.Combine(Path.GetDirectoryName(storePath), "screenshots");
                     if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
                     string path = Path.Combine(folder, "剪贴板_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + ".png");
@@ -529,6 +598,9 @@ namespace IslandShot
             capsule.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
             {
                 if (e.ChangedButton != MouseButton.Left) return;
+                // 点在迷你播放器的按钮上：交给按钮处理，别展开面板
+                if (IsCapsuleMiniButtonSource(e.OriginalSource)) return;
+                capsuleDoubleClick = capsuleMiniActive && e.ClickCount >= 2;
                 capsuleStart = e.GetPosition(this);
                 capsuleDragLeft = Left;
                 capsuleDragCursorX = System.Windows.Forms.Cursor.Position.X / DpiScale();
@@ -572,8 +644,28 @@ namespace IslandShot
                     capsuleMoved = false;
                     return;
                 }
+                // 迷你播放器按钮上的点击不触发展开；迷你态下要双击才展开
+                if (IsCapsuleMiniButtonSource(e.OriginalSource)) return;
+                if (capsuleMiniActive && !capsuleDoubleClick) return;
                 SetExpanded(true);
             };
+        }
+
+        // 点在迷你播放器的三个按钮上时，胶囊不处理（交给按钮自己）
+        bool IsCapsuleMiniButtonSource(object source)
+        {
+            // 来消息提示是独立一层：点它应该"打开微信"，不是展开面板
+            if (IsCapsuleNoticeSource(source)) return true;
+            if (!capsuleMiniActive || capsuleMiniButtons.Count == 0) return false;
+            DependencyObject node = source as DependencyObject;
+            int guard = 0;
+            while (node != null && guard++ < 32)
+            {
+                if (capsuleMiniButtons.Contains(node)) return true;
+                if (node == capsule) return false;
+                node = VisualTreeHelper.GetParent(node);
+            }
+            return false;
         }
 
         void SavePlacement()
@@ -909,6 +1001,12 @@ namespace IslandShot
 
         void SetExpanded(bool value)
         {
+            // 休眠中卸掉的缩略图 / AI 气泡在真正展开面板时才懒加载回来。
+            if (value)
+            {
+                ReloadCardImages();
+                if (aiLastSurface || aiVisible) RestoreAiChatVisuals();
+            }
             // 上次关的是 AI 面板 → 从胶囊再展开时直接回到 AI 面板。
             // （图片/文字面板不受影响：它们本来就默认回到"图片"页签）
             if (value && aiLastSurface && !aiVisible && aiPanel != null)
@@ -916,9 +1014,19 @@ namespace IslandShot
                 aiVisible = true;
                 if (panel != null) panel.Visibility = Visibility.Collapsed;
             }
+            // 上次关的是音乐面板 → 下次从胶囊展开直接回到音乐面板
+            if (value && musicLastSurface && !musicVisible && musicPanel != null)
+            {
+                musicVisible = true;
+                aiVisible = false;
+                if (panel != null) panel.Visibility = Visibility.Collapsed;
+            }
             if (mouseHook != null) mouseHook.Enabled = value;
             SetExpandedAnimated(value);
             if (!value) ResetOrbHubInstant();
+            // 收起后如果正在放歌：胶囊变宽成迷你播放器（等形变播完再变，避免两段动画打架）
+            if (value) UpdateCapsuleMusicMode();
+            else Motion.Delay(380, delegate { UpdateCapsuleMusicMode(); });
         }
 
         void ToggleCapsule()
@@ -928,12 +1036,14 @@ namespace IslandShot
                 SetExpanded(false);
                 SetCapsuleVisible(false);
                 capsuleClosed = true;
+                ScheduleSleep();
             }
             else
             {
                 SetExpanded(false);
                 SetCapsuleVisible(true);
                 capsuleClosed = false;
+                WakeFromSleep();
                 CapsuleReturnJump();
                 Activate();
             }
@@ -1393,21 +1503,10 @@ namespace IslandShot
                 var existing = child as Border;
                 if (existing != null && string.Equals(existing.Tag as string, path, StringComparison.OrdinalIgnoreCase)) return;
             }
-            BitmapSource image;
-            try
-            {
-                var loaded = new BitmapImage();
-                loaded.BeginInit();
-                loaded.CacheOption = BitmapCacheOption.OnLoad;
-                loaded.DecodePixelWidth = 480;
-                loaded.UriSource = new Uri(path, UriKind.Absolute);
-                loaded.EndInit();
-                loaded.Freeze();
-                image = loaded;
-            }
-            catch (Exception) { return; }
+            // 休眠期间不解码缩略图：卡片照常加进来，等展开面板时再统一回填。
+            BitmapSource image = sleeping ? null : DecodeCardThumbnail(path);
+            if (!sleeping && image == null) return;
 
-            image = ToOpaque(image);
             var picture = new Image { Source = image, Stretch = Stretch.Uniform, Width = 160, Height = 110 };
             picture.Clip = new RectangleGeometry(new Rect(0, 0, 160, 110), 8, 8);
             var label = new TextBlock
@@ -1663,6 +1762,7 @@ namespace IslandShot
                             {
                                 SetCapsuleVisible(true);
                                 capsuleClosed = false;
+                                WakeFromSleep();
                             }
                         }
                     };

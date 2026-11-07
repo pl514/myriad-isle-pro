@@ -47,6 +47,7 @@ namespace IslandShot
         FrameworkElement BuildOrbHub()
         {
             RegisterTools();
+            AttachCapsuleNotice();
 
             // 触发器：26px 小圆，里面三个小点；展开后变成 ×
             orbTrigger = new Border
@@ -97,7 +98,7 @@ namespace IslandShot
             // 球的容器：宽度固定，避免展开/收回时右边按钮位移
             orbSlot = new Grid
             {
-                Width = 5 * 28 + 5 * 8,
+                Width = 3 * 28 + 3 * 8,
                 Height = 28,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(10, 0, 0, 0),
@@ -142,22 +143,6 @@ namespace IslandShot
                 ColorFrom = Color.FromRgb(52, 211, 153),
                 ColorTo = Color.FromRgb(14, 165, 233),
                 Launch = LaunchMusic
-            });
-            orbTools.Add(new CapsuleTool
-            {
-                Id = "wechat",
-                Name = "微信",
-                ColorFrom = Color.FromRgb(7, 193, 96),
-                ColorTo = Color.FromRgb(16, 185, 129),
-                Launch = LaunchWeChat
-            });
-            orbTools.Add(new CapsuleTool
-            {
-                Id = "qq",
-                Name = "QQ",
-                ColorFrom = Color.FromRgb(18, 183, 245),
-                ColorTo = Color.FromRgb(56, 148, 255),
-                Launch = LaunchQq
             });
         }
 
