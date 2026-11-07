@@ -41,6 +41,7 @@ namespace IslandShot
 
         uint shellHookMessage;
         bool shellHookRegistered;
+        AudioWatcher audioWatcher;
 
         // 把提示层挂到胶囊里（胶囊内容是一个 Grid，里面已有 layers + 迷你播放器）
         void AttachCapsuleNotice()
@@ -53,6 +54,29 @@ namespace IslandShot
             root.Children.Add(capsuleNotice);
 
             SourceInitialized += delegate { RegisterSheetHook(); };
+
+            // 主信号：微信/QQ 的消息提示音
+            try
+            {
+                audioWatcher = new AudioWatcher(delegate(string appId)
+                {
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        MessengerLog("audio trigger " + appId);
+                        if (!capsuleNoticeActive) ShowCapsuleNotice(appId);
+                    }), DispatcherPriority.Background);
+                });
+                audioWatcher.Start();
+            }
+            catch (Exception ex)
+            {
+                MessengerLog("audio watcher failed: " + ex.Message);
+            }
+
+            Closed += delegate
+            {
+                if (audioWatcher != null) audioWatcher.Dispose();
+            };
         }
 
         Grid BuildCapsuleNotice()
