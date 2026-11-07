@@ -31,6 +31,7 @@ namespace IslandShot
         [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out Win32Rect rect);
         [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
         [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
         [DllImport("user32.dll")] static extern bool RedrawWindow(IntPtr hwnd, IntPtr updateRect, IntPtr updateRgn, uint flags);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -432,6 +433,20 @@ namespace IslandShot
             MessengerLog("unpark -> " + x + "," + y + " " + w + "x" + h);
         }
 
+        // Electron/Qt 被外部显示后可能渲染成黑屏：给一次假的尺寸变化，逼它重绘
+        void NudgeWindow(IntPtr hwnd)
+        {
+            Win32Rect rect;
+            if (!GetWindowRect(hwnd, out rect)) return;
+            int width = rect.Right - rect.Left;
+            int height = rect.Bottom - rect.Top;
+            if (width < 100 || height < 100) return;
+
+            SetWindowPos(hwnd, IntPtr.Zero, rect.Left, rect.Top, width + 1, height, SwpNoZorder);
+            SetWindowPos(hwnd, IntPtr.Zero, rect.Left, rect.Top, width, height, SwpNoZorder);
+            RedrawWindow(hwnd, IntPtr.Zero, IntPtr.Zero, RdwInvalidate | RdwFrame | RdwAllChildren | RdwUpdateNow);
+        }
+
         // 点提示：把客户端窗口叫到前台；找不到就启动它
         void OpenMessengerApp(string id)
         {
@@ -443,10 +458,9 @@ namespace IslandShot
                 bool haveRect = GetWindowRect(hwnd, out rect);
                 if (haveRect && IsParkedRect(rect)) UnparkMessengerWindow(hwnd);
 
-                ShowWindow(hwnd, SwShow);
-                ShowWindow(hwnd, SwRestore);
-                RedrawWindow(hwnd, IntPtr.Zero, IntPtr.Zero, RdwInvalidate | RdwFrame | RdwAllChildren | RdwUpdateNow);
+                ShowWindow(hwnd, IsIconic(hwnd) ? SwRestore : SwShow);
                 SetForegroundWindow(hwnd);
+                NudgeWindow(hwnd);
                 MessengerLog("open " + id + " -> foreground hwnd=" + hwnd + " size=" + DescribeSize(hwnd));
                 return;
             }
