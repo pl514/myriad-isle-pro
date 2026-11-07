@@ -137,6 +137,14 @@ namespace IslandShot
             });
             orbTools.Add(new CapsuleTool
             {
+                Id = "music",
+                Name = "音乐",
+                ColorFrom = Color.FromRgb(52, 211, 153),
+                ColorTo = Color.FromRgb(14, 165, 233),
+                Launch = LaunchMusic
+            });
+            orbTools.Add(new CapsuleTool
+            {
                 Id = "wechat",
                 Name = "微信",
                 ColorFrom = Color.FromRgb(7, 193, 96),
@@ -150,14 +158,6 @@ namespace IslandShot
                 ColorFrom = Color.FromRgb(18, 183, 245),
                 ColorTo = Color.FromRgb(56, 148, 255),
                 Launch = LaunchQq
-            });
-            orbTools.Add(new CapsuleTool
-            {
-                Id = "music",
-                Name = "音乐",
-                ColorFrom = Color.FromRgb(52, 211, 153),
-                ColorTo = Color.FromRgb(14, 165, 233),
-                Launch = LaunchMusic
             });
         }
 

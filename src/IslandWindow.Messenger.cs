@@ -1,22 +1,22 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace IslandShot
 {
     // ---------------------------------------------------------------------
     // 微信 / QQ 小窗：不嵌内容，只"摆"别人的窗口。
     //
-    // 为什么只能摆：它们是没有 web 层的原生客户端，内容塞不进分层窗口。
-    // 但把窗口移到胶囊下方、改成手机比例、再一键还原，体验上已经够用，
-    // 而且零权限、零封号风险。
-    //
-    // 已验证（2026-11-07，微信 4.2 / QQ）：
+    // 实测（2026-11-07，微信 4.2 / QQ）：
     //   · 两个都接受 SetWindowPos 缩放到 420×760；
-    //   · 微信有两个同名窗口，必须按"可见 + 面积最大"挑主窗口。
+    //   · 微信最小化到托盘后，主窗口会消失，只剩一个 176×199 的 Weixin 浮窗，
+    //     这时必须先"激活应用"（再跑一次 exe），等主窗口回来再吸；
+    //   · QQ 是 Electron，被外部移动后容易不重绘 → 移动后强制 RedrawWindow。
     // ---------------------------------------------------------------------
     internal sealed partial class IslandWindow
     {
@@ -30,6 +30,8 @@ namespace IslandShot
         [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
         [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out Win32Rect rect);
         [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
+        [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern bool RedrawWindow(IntPtr hwnd, IntPtr updateRect, IntPtr updateRgn, uint flags);
 
         [StructLayout(LayoutKind.Sequential)]
         struct Win32Rect { public int Left, Top, Right, Bottom; }
@@ -39,13 +41,23 @@ namespace IslandShot
         const int SwShow = 5;
         const int SwRestore = 9;
 
+        const uint RdwInvalidate = 0x0001;
+        const uint RdwFrame = 0x0400;
+        const uint RdwAllChildren = 0x0080;
+        const uint RdwUpdateNow = 0x0100;
+
+        // 小于这个尺寸的窗口不算"主窗口"（微信托盘态剩的那个浮窗是 176×199）
+        const int MinMainWidth = 400;
+        const int MinMainHeight = 300;
+
         sealed class MessengerApp
         {
             public string Id;
             public string Display;
             public string[] ProcessNames;
             public string ClassHint;
-            public string[] TitleHints;
+            public string InstallKey;       // 注册表里 InstallPath 的位置
+            public string ExeName;
         }
 
         static readonly MessengerApp WeChatApp = new MessengerApp
@@ -54,7 +66,8 @@ namespace IslandShot
             Display = "微信",
             ProcessNames = new string[] { "Weixin", "WeChat" },
             ClassHint = "QWindowIcon",
-            TitleHints = new string[] { "微信", "Weixin", "WeChat" }
+            InstallKey = @"Software\Tencent\Weixin",
+            ExeName = "Weixin.exe"
         };
 
         static readonly MessengerApp QqApp = new MessengerApp
@@ -63,10 +76,10 @@ namespace IslandShot
             Display = "QQ",
             ProcessNames = new string[] { "QQ", "QQNT" },
             ClassHint = "Chrome_WidgetWin_1",
-            TitleHints = new string[] { "QQ" }
+            InstallKey = @"Software\Tencent\QQNT",
+            ExeName = "QQ.exe"
         };
 
-        // 当前吸附着的窗口（没吸附时 hwnd 为零）
         IntPtr messengerHwnd;
         string messengerActiveId;
         Win32Rect messengerOriginalRect;
@@ -74,11 +87,27 @@ namespace IslandShot
 
         static MessengerApp MessengerById(string id)
         {
-            if (id == "qq") return QqApp;
-            return WeChatApp;
+            return id == "qq" ? QqApp : WeChatApp;
         }
 
-        // 点球 / 点胶囊提示时调用：已吸附就还原，否则吸过来
+        static string MessengerLogPath
+        {
+            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "messenger.log"); }
+        }
+
+        static void MessengerLog(string message)
+        {
+            try
+            {
+                string folder = Path.GetDirectoryName(MessengerLogPath);
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                File.AppendAllText(MessengerLogPath,
+                    DateTime.Now.ToString("HH:mm:ss.fff") + "  " + message + Environment.NewLine);
+            }
+            catch (Exception) { }
+        }
+
+        // 点球：已吸附就还原，否则吸过来
         void ToggleMessengerWindow(string id)
         {
             MessengerApp app = MessengerById(id);
@@ -86,21 +115,44 @@ namespace IslandShot
             if (messengerHwnd != IntPtr.Zero && messengerActiveId == id)
             {
                 RestoreMessengerWindow();
-                ShowToolMessage(app.Display, "已还原窗口");
                 return;
             }
-
             if (messengerHwnd != IntPtr.Zero) RestoreMessengerWindow();
 
             IntPtr hwnd = FindMessengerWindow(app);
-            if (hwnd == IntPtr.Zero)
+            MessengerLog(app.Id + " find -> hwnd=" + hwnd + " size=" + DescribeSize(hwnd));
+
+            if (hwnd == IntPtr.Zero || !IsMainSized(hwnd))
             {
-                ShowToolMessage(app.Display, "没有检测到 " + app.Display + " 的窗口，先把它打开。");
-                SetToolRunning(FindTool(id), false);
+                // 最小化到托盘时主窗口不在了：先把应用激活，再等它自己冒出来
+                MessengerLog(app.Id + " -> activate app");
+                ActivateApp(app);
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    var retry = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1300) };
+                    retry.Tick += delegate
+                    {
+                        retry.Stop();
+                        IntPtr again = FindMessengerWindow(app);
+                        MessengerLog(app.Id + " retry -> hwnd=" + again + " size=" + DescribeSize(again));
+                        if (again == IntPtr.Zero || !IsMainSized(again))
+                        {
+                            ShowToolMessage(app.Display, "没有找到 " + app.Display + " 的主窗口，先手动把它点开一次。");
+                            SetToolRunning(FindTool(app.Id), false);
+                            return;
+                        }
+                        SnapWindow(app, again);
+                    };
+                    retry.Start();
+                }), DispatcherPriority.Background);
                 return;
             }
 
-            // 最小化到托盘时窗口是隐藏的，得先叫出来
+            SnapWindow(app, hwnd);
+        }
+
+        void SnapWindow(MessengerApp app, IntPtr hwnd)
+        {
             if (!IsWindowVisible(hwnd))
             {
                 ShowWindow(hwnd, SwShow);
@@ -120,9 +172,14 @@ namespace IslandShot
                 (int)Math.Round(target.Height * dpi),
                 SwpNoZorder | SwpShowWindow);
 
+            // Electron / Qt 被外部移动后可能不重绘，这里强制刷新一次
+            SetForegroundWindow(hwnd);
+            RedrawWindow(hwnd, IntPtr.Zero, IntPtr.Zero, RdwInvalidate | RdwFrame | RdwAllChildren | RdwUpdateNow);
+
             messengerHwnd = hwnd;
-            messengerActiveId = id;
-            SetToolRunning(FindTool(id), true);
+            messengerActiveId = app.Id;
+            SetToolRunning(FindTool(app.Id), true);
+            MessengerLog(app.Id + " snapped -> " + target.Left + "," + target.Top + " " + target.Width + "x" + target.Height);
         }
 
         void RestoreMessengerWindow()
@@ -136,6 +193,8 @@ namespace IslandShot
                     messengerOriginalRect.Right - messengerOriginalRect.Left,
                     messengerOriginalRect.Bottom - messengerOriginalRect.Top,
                     SwpNoZorder);
+                RedrawWindow(messengerHwnd, IntPtr.Zero, IntPtr.Zero, RdwInvalidate | RdwFrame | RdwAllChildren | RdwUpdateNow);
+                MessengerLog(messengerActiveId + " restored");
             }
             if (messengerActiveId != null) SetToolRunning(FindTool(messengerActiveId), false);
             messengerHwnd = IntPtr.Zero;
@@ -162,7 +221,23 @@ namespace IslandShot
             return new Rect(left, top, Math.Max(320, width), Math.Max(420, height));
         }
 
-        // 找主窗口：同名进程 + 类名匹配，优先可见、再按面积最大
+        string DescribeSize(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return "(none)";
+            Win32Rect rect;
+            if (!GetWindowRect(hwnd, out rect)) return "(?)";
+            return (rect.Right - rect.Left) + "x" + (rect.Bottom - rect.Top);
+        }
+
+        bool IsMainSized(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return false;
+            Win32Rect rect;
+            if (!GetWindowRect(hwnd, out rect)) return false;
+            return (rect.Right - rect.Left) >= MinMainWidth && (rect.Bottom - rect.Top) >= MinMainHeight;
+        }
+
+        // 找窗口：同名进程 + 类名匹配，可见优先、面积最大
         IntPtr FindMessengerWindow(MessengerApp app)
         {
             var pids = new HashSet<int>();
@@ -189,12 +264,13 @@ namespace IslandShot
 
                 var cls = new StringBuilder(256);
                 GetClassName(hwnd, cls, 256);
-                if (app.ClassHint != null && cls.ToString().IndexOf(app.ClassHint, StringComparison.OrdinalIgnoreCase) < 0) return true;
+                if (app.ClassHint != null &&
+                    cls.ToString().IndexOf(app.ClassHint, StringComparison.OrdinalIgnoreCase) < 0) return true;
 
                 Win32Rect rect;
                 if (!GetWindowRect(hwnd, out rect)) return true;
                 long area = (long)(rect.Right - rect.Left) * (rect.Bottom - rect.Top);
-                if (area < 200 * 200) return true;   // 小浮窗、提示窗全部排除
+                if (area < 100 * 100) return true;
 
                 if (IsWindowVisible(hwnd))
                 {
@@ -210,7 +286,68 @@ namespace IslandShot
             return bestVisible != IntPtr.Zero ? bestVisible : bestHidden;
         }
 
-        // 给"有新消息"提示用：客户端是否正在运行
+        // 再跑一次 exe，让单实例的客户端把主窗口叫出来
+        void ActivateApp(MessengerApp app)
+        {
+            string exe = FindAppExecutable(app);
+            if (string.IsNullOrEmpty(exe))
+            {
+                MessengerLog(app.Id + " exe not found");
+                return;
+            }
+            try
+            {
+                var info = new ProcessStartInfo(exe) { UseShellExecute = true };
+                Process.Start(info);
+                MessengerLog(app.Id + " launched " + exe);
+            }
+            catch (Exception ex)
+            {
+                MessengerLog(app.Id + " launch failed: " + ex.Message);
+            }
+        }
+
+        string FindAppExecutable(MessengerApp app)
+        {
+            // 1) 正在运行的进程自带路径最可靠
+            foreach (string name in app.ProcessNames)
+            {
+                try
+                {
+                    Process[] list = Process.GetProcessesByName(name);
+                    if (list.Length == 0) continue;
+                    try
+                    {
+                        string path = list[0].MainModule.FileName;
+                        if (!string.IsNullOrEmpty(path) && File.Exists(path)) return path;
+                    }
+                    catch (Exception) { }
+                }
+                catch (Exception) { }
+            }
+
+            // 2) 注册表里的 InstallPath
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(app.InstallKey))
+                {
+                    if (key != null)
+                    {
+                        string install = key.GetValue("InstallPath") as string;
+                        if (!string.IsNullOrEmpty(install))
+                        {
+                            string candidate = Path.Combine(install, app.ExeName);
+                            if (File.Exists(candidate)) return candidate;
+                        }
+                    }
+                }
+            }
+            catch (Exception) { }
+
+            return null;
+        }
+
+        // 给"有新消息"提示用：客户端是否在运行
         bool IsMessengerRunning(string id)
         {
             MessengerApp app = MessengerById(id);
