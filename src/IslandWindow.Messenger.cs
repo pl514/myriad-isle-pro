@@ -505,30 +505,40 @@ namespace IslandShot
             MessengerLog("unpark -> " + x + "," + y + " " + w + "x" + h);
         }
 
-        // 点提示：只把客户端窗口叫到前台。
-        // 不对窗口做任何尺寸/位置修改 —— QQ（Electron）被外部改尺寸后会黑屏，
-        // 而且一旦黑了不重启就恢复不了。大的就是大的，小的就是小的。
+        // 点提示：只在窗口本来就在桌面上时切前台。
+        //
+        // 不强行显示托盘里的窗口 —— 实测那样做会得到一个"白屏、点不动"的窗口
+        // （客户端自己不知道要重绘）。宁可提示用户去点托盘图标。
         void OpenMessengerApp(string id)
         {
             MessengerApp app = MessengerById(id);
-            IntPtr hwnd;
-            if (!messengerKnownHwnd.TryGetValue(app.Id, out hwnd) || hwnd == IntPtr.Zero || !IsWindow(hwnd))
-            {
-                hwnd = FindMessengerWindow(app);
-            }
-            if (hwnd != IntPtr.Zero)
-            {
-                // 微信托盘态会把主窗口停在屏幕外（-32000,-32000），这个必须拉回来
-                Win32Rect rect;
-                if (GetWindowRect(hwnd, out rect) && IsParkedRect(rect)) UnparkMessengerWindow(hwnd);
 
+            IntPtr hwnd;
+            if (messengerKnownHwnd.TryGetValue(app.Id, out hwnd) && hwnd != IntPtr.Zero && !IsWindow(hwnd))
+            {
+                hwnd = IntPtr.Zero;
+            }
+            if (hwnd == IntPtr.Zero) hwnd = FindMessengerWindow(app);
+
+            bool usable = false;
+            if (hwnd != IntPtr.Zero && IsWindowVisible(hwnd))
+            {
+                Win32Rect rect;
+                if (GetWindowRect(hwnd, out rect) && !IsParkedRect(rect)) usable = true;
+            }
+
+            if (usable)
+            {
                 if (IsIconic(hwnd)) ShowWindow(hwnd, SwRestore);
                 ForceForeground(hwnd);
                 MessengerLog("open " + id + " -> foreground hwnd=" + hwnd + " size=" + DescribeSize(hwnd));
                 return;
             }
-            MessengerLog("open " + id + " -> no window, activate app");
-            ActivateApp(app);
+
+            // 托盘里：不硬拉，给明确提示
+            MessengerLog("open " + id + " -> in tray, asking user");
+            ShowToolMessage(app.Display,
+                app.Display + " 在托盘里。点一下任务栏托盘图标就能打开，硬拉出来会白屏。");
         }
     }
 }
