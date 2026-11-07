@@ -433,34 +433,22 @@ namespace IslandShot
             MessengerLog("unpark -> " + x + "," + y + " " + w + "x" + h);
         }
 
-        // Electron/Qt 被外部显示后可能渲染成黑屏：给一次假的尺寸变化，逼它重绘
-        void NudgeWindow(IntPtr hwnd)
-        {
-            Win32Rect rect;
-            if (!GetWindowRect(hwnd, out rect)) return;
-            int width = rect.Right - rect.Left;
-            int height = rect.Bottom - rect.Top;
-            if (width < 100 || height < 100) return;
-
-            SetWindowPos(hwnd, IntPtr.Zero, rect.Left, rect.Top, width + 1, height, SwpNoZorder);
-            SetWindowPos(hwnd, IntPtr.Zero, rect.Left, rect.Top, width, height, SwpNoZorder);
-            RedrawWindow(hwnd, IntPtr.Zero, IntPtr.Zero, RdwInvalidate | RdwFrame | RdwAllChildren | RdwUpdateNow);
-        }
-
-        // 点提示：把客户端窗口叫到前台；找不到就启动它
+        // 点提示：只把客户端窗口叫到前台。
+        // 不对窗口做任何尺寸/位置修改 —— QQ（Electron）被外部改尺寸后会黑屏，
+        // 而且一旦黑了不重启就恢复不了。大的就是大的，小的就是小的。
         void OpenMessengerApp(string id)
         {
             MessengerApp app = MessengerById(id);
             IntPtr hwnd = FindMessengerWindow(app);
             if (hwnd != IntPtr.Zero)
             {
+                // 微信托盘态会把主窗口停在屏幕外（-32000,-32000），这个必须拉回来
                 Win32Rect rect;
-                bool haveRect = GetWindowRect(hwnd, out rect);
-                if (haveRect && IsParkedRect(rect)) UnparkMessengerWindow(hwnd);
+                if (GetWindowRect(hwnd, out rect) && IsParkedRect(rect)) UnparkMessengerWindow(hwnd);
 
-                ShowWindow(hwnd, IsIconic(hwnd) ? SwRestore : SwShow);
+                if (IsIconic(hwnd)) ShowWindow(hwnd, SwRestore);
+                else ShowWindow(hwnd, SwShow);
                 SetForegroundWindow(hwnd);
-                NudgeWindow(hwnd);
                 MessengerLog("open " + id + " -> foreground hwnd=" + hwnd + " size=" + DescribeSize(hwnd));
                 return;
             }
