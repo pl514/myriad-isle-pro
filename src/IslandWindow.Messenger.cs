@@ -280,8 +280,8 @@ namespace IslandShot
 
             IntPtr bestVisible = IntPtr.Zero;
             long bestVisibleArea = 0;
-            IntPtr bestHidden = IntPtr.Zero;
-            long bestHiddenArea = 0;
+            IntPtr bestAny = IntPtr.Zero;
+            long bestAnyArea = 0;
 
             EnumWindows(delegate(IntPtr hwnd, IntPtr param)
             {
@@ -297,20 +297,18 @@ namespace IslandShot
                 Win32Rect rect;
                 if (!GetWindowRect(hwnd, out rect)) return true;
                 long area = (long)(rect.Right - rect.Left) * (rect.Bottom - rect.Top);
-                if (area < 100 * 100) return true;
 
-                if (IsWindowVisible(hwnd))
+                // 屏幕外的"停靠窗口"（微信托盘态）也要留作候选，靠 Unpark 恢复
+                if (area > bestAnyArea) { bestAnyArea = area; bestAny = hwnd; }
+
+                if (IsWindowVisible(hwnd) && !IsParkedRect(rect))
                 {
                     if (area > bestVisibleArea) { bestVisibleArea = area; bestVisible = hwnd; }
-                }
-                else
-                {
-                    if (area > bestHiddenArea) { bestHiddenArea = area; bestHidden = hwnd; }
                 }
                 return true;
             }, IntPtr.Zero);
 
-            return bestVisible != IntPtr.Zero ? bestVisible : bestHidden;
+            return bestVisible != IntPtr.Zero ? bestVisible : bestAny;
         }
 
         // 再跑一次 exe，让单实例的客户端把主窗口叫出来
@@ -408,20 +406,48 @@ namespace IslandShot
             return null;
         }
 
+        // 微信"最小化到托盘"其实把主窗口挪到 -32000,-32000 并缩成 160x28
+        static bool IsParkedRect(Win32Rect rect)
+        {
+            if (rect.Left <= -30000 || rect.Top <= -30000) return true;
+            int w = rect.Right - rect.Left;
+            int h = rect.Bottom - rect.Top;
+            return w < 300 || h < 200;
+        }
+
+        // 把停靠在屏幕外的窗口恢复成正常大小，放到屏幕中间
+        void UnparkMessengerWindow(IntPtr hwnd)
+        {
+            double dpi = DpiScale();
+            Rect work = SystemParameters.WorkArea;
+            double width = Math.Min(980, work.Width * 0.62);
+            double height = Math.Min(700, work.Height * 0.82);
+
+            int x = (int)Math.Round((work.Left + (work.Width - width) / 2) * dpi);
+            int y = (int)Math.Round((work.Top + (work.Height - height) / 2) * dpi);
+            int w = (int)Math.Round(width * dpi);
+            int h = (int)Math.Round(height * dpi);
+
+            SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h, SwpNoZorder | SwpShowWindow);
+            MessengerLog("unpark -> " + x + "," + y + " " + w + "x" + h);
+        }
+
         // 点提示：把客户端窗口叫到前台；找不到就启动它
         void OpenMessengerApp(string id)
         {
             MessengerApp app = MessengerById(id);
             IntPtr hwnd = FindMessengerWindow(app);
-            if (hwnd != IntPtr.Zero && IsMainSized(hwnd))
+            if (hwnd != IntPtr.Zero)
             {
-                if (!IsWindowVisible(hwnd))
-                {
-                    ShowWindow(hwnd, SwShow);
-                    ShowWindow(hwnd, SwRestore);
-                }
+                Win32Rect rect;
+                bool haveRect = GetWindowRect(hwnd, out rect);
+                if (haveRect && IsParkedRect(rect)) UnparkMessengerWindow(hwnd);
+
+                ShowWindow(hwnd, SwShow);
+                ShowWindow(hwnd, SwRestore);
+                RedrawWindow(hwnd, IntPtr.Zero, IntPtr.Zero, RdwInvalidate | RdwFrame | RdwAllChildren | RdwUpdateNow);
                 SetForegroundWindow(hwnd);
-                MessengerLog("open " + id + " -> foreground hwnd=" + hwnd);
+                MessengerLog("open " + id + " -> foreground hwnd=" + hwnd + " size=" + DescribeSize(hwnd));
                 return;
             }
             MessengerLog("open " + id + " -> no window, activate app");

@@ -29,7 +29,7 @@ namespace IslandShot
 
         const int HShellFlash = 0x8006;          // HSHELL_REDRAW | 0x8000
         const double CapsuleNoticeWidth = 208;
-        const int NoticeHoldMs = 1600;
+        const int NoticeHoldMs = 2000;
 
         Grid capsuleNotice;
         TextBlock capsuleNoticeText;
