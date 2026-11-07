@@ -36,6 +36,7 @@ namespace IslandShot
         Border capsuleNoticeDot;
         DispatcherTimer capsuleNoticeTimer;
         bool capsuleNoticeActive;
+        bool capsuleNoticeHidMusic;
         string capsuleNoticeApp = "wechat";
         readonly List<DependencyObject> capsuleNoticeButtons = new List<DependencyObject>();
 
@@ -164,6 +165,17 @@ namespace IslandShot
             capsuleNotice.IsHitTestVisible = true;
             Motion.Fade(capsuleNotice, 1, 140, Motion.Enter, 0, null);
 
+            // 通知优先：正在放歌的话先把音乐迷你播放器收起来，避免两层叠在一起
+            if (capsuleMiniActive && capsuleMiniPlayer != null)
+            {
+                capsuleNoticeHidMusic = true;
+                UIElement player = capsuleMiniPlayer;
+                Motion.Fade(player, 0, 100, Motion.Exit, 0, delegate
+                {
+                    if (capsuleNoticeActive && capsuleMiniPlayer != null) capsuleMiniPlayer.Visibility = Visibility.Collapsed;
+                });
+            }
+
             if (capsuleEyes != null && capsuleEyes.Visibility == Visibility.Visible)
             {
                 UIElement eyes = capsuleEyes;
@@ -205,6 +217,18 @@ namespace IslandShot
 
             // 音乐迷你播放器可能还开着，宽度要回到它该有的值
             AnimateCapsuleWidth(capsuleMiniActive ? CapsuleMusicWidth : CapsuleIdleWidth);
+
+            // 恢复被通知挤掉的音乐胶囊
+            if (capsuleNoticeHidMusic)
+            {
+                capsuleNoticeHidMusic = false;
+                if (capsuleMiniActive && capsuleMiniPlayer != null && !expanded)
+                {
+                    capsuleMiniPlayer.Visibility = Visibility.Visible;
+                    capsuleMiniPlayer.Opacity = 0;
+                    Motion.Fade(capsuleMiniPlayer, 1, 150, Motion.Enter, 60, null);
+                }
+            }
 
             if (capsuleEyes != null && !capsuleMiniActive)
             {
