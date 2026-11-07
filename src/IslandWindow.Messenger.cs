@@ -32,6 +32,8 @@ namespace IslandShot
         [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
         [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
         [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] static extern bool RedrawWindow(IntPtr hwnd, IntPtr updateRect, IntPtr updateRgn, uint flags);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -80,6 +82,42 @@ namespace IslandShot
             InstallKey = @"Software\Tencent\QQNT",
             ExeName = "QQ.exe"
         };
+
+        // 学习到的"真窗口"：QQ 同时存在多个同标题窗口，只有成为前台的那个才是真界面
+        static readonly Dictionary<string, IntPtr> messengerKnownHwnd = new Dictionary<string, IntPtr>();
+        DispatcherTimer messengerLearnTimer;
+
+        void StartMessengerLearning()
+        {
+            if (messengerLearnTimer != null) return;
+            messengerLearnTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+            messengerLearnTimer.Tick += delegate { LearnMessengerWindow(); };
+            messengerLearnTimer.Start();
+        }
+
+        void LearnMessengerWindow()
+        {
+            try
+            {
+                IntPtr foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero) return;
+                int pid;
+                GetWindowThreadProcessId(foreground, out pid);
+                string app = MessengerIdByPid(pid);
+                if (app == null) return;
+
+                Win32Rect rect;
+                if (!GetWindowRect(foreground, out rect)) return;
+                if (IsParkedRect(rect)) return;
+                if (rect.Right - rect.Left < 400 || rect.Bottom - rect.Top < 300) return;
+
+                IntPtr previous;
+                if (messengerKnownHwnd.TryGetValue(app, out previous) && previous == foreground) return;
+                messengerKnownHwnd[app] = foreground;
+                MessengerLog("learned " + app + " hwnd=" + foreground + " " + DescribeSize(foreground));
+            }
+            catch (Exception) { }
+        }
 
         IntPtr messengerHwnd;
         string messengerActiveId;
@@ -439,7 +477,11 @@ namespace IslandShot
         void OpenMessengerApp(string id)
         {
             MessengerApp app = MessengerById(id);
-            IntPtr hwnd = FindMessengerWindow(app);
+            IntPtr hwnd;
+            if (!messengerKnownHwnd.TryGetValue(app.Id, out hwnd) || hwnd == IntPtr.Zero || !IsWindow(hwnd))
+            {
+                hwnd = FindMessengerWindow(app);
+            }
             if (hwnd != IntPtr.Zero)
             {
                 // 微信托盘态会把主窗口停在屏幕外（-32000,-32000），这个必须拉回来

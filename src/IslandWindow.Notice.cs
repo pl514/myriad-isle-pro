@@ -55,6 +55,8 @@ namespace IslandShot
 
             SourceInitialized += delegate { RegisterSheetHook(); };
 
+            StartMessengerLearning();
+
             // 主信号：微信/QQ 的消息提示音
             try
             {
