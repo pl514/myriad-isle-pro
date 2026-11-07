@@ -34,6 +34,9 @@ namespace IslandShot
         [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
         [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
         [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] static extern void SwitchToThisWindow(IntPtr hwnd, bool altTab);
+        [DllImport("user32.dll")] static extern bool AttachThreadInput(uint attach, uint attachTo, bool doAttach);
+        [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
         [DllImport("user32.dll")] static extern bool RedrawWindow(IntPtr hwnd, IntPtr updateRect, IntPtr updateRgn, uint flags);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -42,7 +45,38 @@ namespace IslandShot
         const uint SwpNoZorder = 0x0004;
         const uint SwpShowWindow = 0x0040;
         const int SwShow = 5;
+        const int SwShowNormal = 1;
         const int SwRestore = 9;
+
+        // 把窗口真正激活：单靠 SetForegroundWindow 从后台进程调用会被系统拒绝，
+        // 表现就是"窗口出来了但像卡死"（画面不刷新、点击没反应）。
+        void ForceForeground(IntPtr hwnd)
+        {
+            ShowWindow(hwnd, SwShowNormal);
+
+            IntPtr foreground = GetForegroundWindow();
+            uint foregroundThread = 0;
+            if (foreground != IntPtr.Zero)
+            {
+                int ignored;
+                foregroundThread = (uint)GetWindowThreadProcessId(foreground, out ignored);
+            }
+            uint currentThread = GetCurrentThreadId();
+            bool attached = false;
+            try
+            {
+                if (foregroundThread != 0 && foregroundThread != currentThread)
+                    attached = AttachThreadInput(currentThread, foregroundThread, true);
+
+                SetForegroundWindow(hwnd);
+                if (GetForegroundWindow() != hwnd) SwitchToThisWindow(hwnd, true);
+            }
+            finally
+            {
+                if (attached) AttachThreadInput(currentThread, foregroundThread, false);
+            }
+            MessengerLog("activate " + hwnd + " foreground=" + (GetForegroundWindow() == hwnd));
+        }
 
         const uint RdwInvalidate = 0x0001;
         const uint RdwFrame = 0x0400;
@@ -489,8 +523,7 @@ namespace IslandShot
                 if (GetWindowRect(hwnd, out rect) && IsParkedRect(rect)) UnparkMessengerWindow(hwnd);
 
                 if (IsIconic(hwnd)) ShowWindow(hwnd, SwRestore);
-                else ShowWindow(hwnd, SwShow);
-                SetForegroundWindow(hwnd);
+                ForceForeground(hwnd);
                 MessengerLog("open " + id + " -> foreground hwnd=" + hwnd + " size=" + DescribeSize(hwnd));
                 return;
             }
