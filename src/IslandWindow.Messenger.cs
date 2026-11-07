@@ -137,7 +137,8 @@ namespace IslandShot
                         MessengerLog(app.Id + " retry -> hwnd=" + again + " size=" + DescribeSize(again));
                         if (again == IntPtr.Zero || !IsMainSized(again))
                         {
-                            ShowToolMessage(app.Display, "没有找到 " + app.Display + " 的主窗口，先手动把它点开一次。");
+                            ShowToolMessage(app.Display,
+                                app.Display + " 现在在托盘里（窗口被关掉了）。先点一下任务栏托盘图标把它打开，再点球。");
                             SetToolRunning(FindTool(app.Id), false);
                             return;
                         }
@@ -202,13 +203,21 @@ namespace IslandShot
             messengerOriginalValid = false;
         }
 
-        // 吸附目标：胶囊正下方，手机比例
+        // 吸附目标：胶囊正下方，手机比例（默认 330×700，可在 data\messenger.txt 里改）
         Rect MessengerTargetRect()
         {
             Rect capsuleRect = ScreenRectOf(capsule);
             Rect work = SystemParameters.WorkArea;
-            double width = Math.Max(360, Math.Min(460, work.Width * 0.24));
-            double height = Math.Min(work.Height - 40, work.Height * 0.78);
+
+            double width = 330;
+            double height = 700;
+            ReadMessengerSizeOverride(ref width, ref height);
+
+            // 高度不能超出工作区
+            double maxHeight = work.Height - 80;
+            if (height > maxHeight) height = maxHeight;
+            if (width < 240) width = 240;
+            if (width > work.Width * 0.4) width = work.Width * 0.4;
 
             double left = capsuleRect.IsEmpty
                 ? work.Left + (work.Width - width) / 2
@@ -218,7 +227,25 @@ namespace IslandShot
             double top = capsuleRect.IsEmpty ? work.Top + 60 : capsuleRect.Bottom + 10;
             top = Math.Min(top, work.Bottom - height - 8);
 
-            return new Rect(left, top, Math.Max(320, width), Math.Max(420, height));
+            return new Rect(left, top, width, height);
+        }
+
+        // data\messenger.txt 里写 "330x700" 就能自定义小窗尺寸
+        static void ReadMessengerSizeOverride(ref double width, ref double height)
+        {
+            try
+            {
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "messenger.txt");
+                if (!File.Exists(path)) return;
+                string text = File.ReadAllText(path).Trim().ToLowerInvariant();
+                int x = text.IndexOf('x');
+                if (x <= 0) return;
+                double w, h;
+                if (!double.TryParse(text.Substring(0, x), out w)) return;
+                if (!double.TryParse(text.Substring(x + 1), out h)) return;
+                if (w >= 200 && h >= 300) { width = w; height = h; }
+            }
+            catch (Exception) { }
         }
 
         string DescribeSize(IntPtr hwnd)
