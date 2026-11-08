@@ -149,7 +149,13 @@ namespace IslandShot
             layers.Children.Add(hairline);
             layers.Children.Add(capsuleSheenHost);
             layers.Children.Add(capsuleEyes);
-            return layers;
+
+            // 迷你播放器单独一层（要能点按钮，所以不能跟着 layers 一起关掉命中测试）
+            var root = new Grid();
+            root.Children.Add(layers);
+            capsuleMiniPlayer = BuildCapsuleMiniPlayer();
+            root.Children.Add(capsuleMiniPlayer);
+            return root;
         }
 
         // 眼睛尺寸跟随胶囊：宽度按比例算，垂直位置略偏上，整体不会超出胶囊（不会被圆角裁到）。
@@ -400,13 +406,15 @@ namespace IslandShot
         {
             if (expanded == value) return;
             expanded = value;
-            FrameworkElement surface = aiVisible && aiPanel != null ? (FrameworkElement)aiPanel : panel;
+            FrameworkElement surface = aiVisible && aiPanel != null
+                ? (FrameworkElement)aiPanel
+                : (musicVisible && musicPanel != null ? (FrameworkElement)musicPanel : panel);
             if (value)
             {
                 capsule.Visibility = Visibility.Visible;
                 surface.Visibility = Visibility.Visible;
                 surface.IsHitTestVisible = true;
-                if (!aiVisible) SetTab(false);
+                if (!aiVisible && !musicVisible) SetTab(false);
                 if (!quietExpand)
                 {
                     Activate();
@@ -436,7 +444,7 @@ namespace IslandShot
                 UIElement body = surfaceBorder == null ? null : surfaceBorder.Child as UIElement;
                 if (body != null) Motion.AnimateDouble(body, UIElement.OpacityProperty, 0, 1, 260, Motion.Enter, 120, null);
 
-                if (!aiVisible) RevealCards();
+                if (!aiVisible && !musicVisible) RevealCards();
                 CapsuleAway();
             }
             else
@@ -462,6 +470,7 @@ namespace IslandShot
                 {
                     if (expanded) return;
                     if (surface == aiPanel) HideAiSurface();
+                    else if (surface == musicPanel) HideMusicSurface();
                     else surface.Visibility = Visibility.Collapsed;
                     surface.IsHitTestVisible = true;
                     if (aiVisible)
@@ -470,6 +479,7 @@ namespace IslandShot
                         aiVisible = false;
                         ApplyAiWindowHeight(false);
                     }
+                    if (musicVisible) musicVisible = false;
                 });
 
                 CapsuleBack();
@@ -480,6 +490,7 @@ namespace IslandShot
                 {
                     if (expanded) return;
                     if (surface == aiPanel) HideAiSurface();
+                    else if (surface == musicPanel) HideMusicSurface();
                     else surface.Visibility = Visibility.Collapsed;
                     surface.IsHitTestVisible = true;
                     if (aiVisible)
@@ -487,6 +498,7 @@ namespace IslandShot
                         aiVisible = false;
                         ApplyAiWindowHeight(false);
                     }
+                    if (musicVisible) musicVisible = false;
                 });
             }
         }
