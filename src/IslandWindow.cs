@@ -616,6 +616,8 @@ namespace IslandShot
                 if (e.ChangedButton != MouseButton.Left) return;
                 // 点在迷你播放器的按钮上：交给按钮处理，别展开面板
                 if (IsCapsuleMiniButtonSource(e.OriginalSource)) return;
+                // 点在消息提示上：让它自己跳转客户端，别展开面板
+                if (capsuleNoticeActive && capsuleNotice != null && capsuleNotice.IsMouseOver) return;
                 capsuleDoubleClick = capsuleMiniActive && e.ClickCount >= 2;
                 capsuleStart = e.GetPosition(this);
                 capsuleDragLeft = Left;
@@ -662,6 +664,8 @@ namespace IslandShot
                 }
                 // 迷你播放器按钮上的点击不触发展开；迷你态下要双击才展开
                 if (IsCapsuleMiniButtonSource(e.OriginalSource)) return;
+                // 点在消息提示上：让它自己跳转客户端，别展开面板
+                if (capsuleNoticeActive && capsuleNotice != null && capsuleNotice.IsMouseOver) return;
                 if (capsuleMiniActive && !capsuleDoubleClick) return;
                 SetExpanded(true);
             };
