@@ -290,6 +290,8 @@ namespace IslandShot
                 }
                 Motion.AnimateDouble(veil, UIElement.OpacityProperty, 0, 1, 420, Motion.Enter, 0, null);
                 SetClickThrough(false);
+                Activate();
+                Focus();
                 BeginSelection();
             };
             finish.Start();
@@ -303,7 +305,7 @@ namespace IslandShot
                 if (handle == IntPtr.Zero) return;
                 int style = GetWindowLong(handle, GwlExStyle);
                 if (enabled) style |= WsExTransparent | WsExNoActivate;
-                else style &= ~WsExTransparent;
+                else style &= ~(WsExTransparent | WsExNoActivate);
                 SetWindowLong(handle, GwlExStyle, style);
             }
             catch (Exception) { }
