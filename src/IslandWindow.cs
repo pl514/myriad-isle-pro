@@ -142,6 +142,13 @@ namespace IslandShot
                 MessengerLog("notice click -> " + capsuleNoticeApp);
                 string app = capsuleNoticeApp;
                 e.Handled = true;
+                if (app == "dsh")
+                {
+                    // DSH 是网页 GUI，没有客户端可跳：直接把面板打开
+                    SetExpanded(true);
+                    ClearUnreadNotice();
+                    return;
+                }
                 OpenMessengerApp(app);
                 SuppressApp(app, 4000);
                 ClearUnreadNotice();
