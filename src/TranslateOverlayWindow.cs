@@ -89,31 +89,29 @@ namespace IslandShot
                 Fill = new LinearGradientBrush(
                     new GradientStopCollection
                     {
-                        new GradientStop(Color.FromArgb(34, 255, 170, 120), 0),
-                        new GradientStop(Color.FromArgb(30, 255, 226, 130), 0.22),
-                        new GradientStop(Color.FromArgb(28, 150, 236, 176), 0.45),
-                        new GradientStop(Color.FromArgb(30, 130, 190, 255), 0.68),
-                        new GradientStop(Color.FromArgb(34, 196, 150, 255), 1)
+                        new GradientStop(Color.FromArgb(64, 200, 172, 255), 0),
+                        new GradientStop(Color.FromArgb(58, 180, 162, 255), 0.26),
+                        new GradientStop(Color.FromArgb(56, 160, 188, 255), 0.52),
+                        new GradientStop(Color.FromArgb(60, 176, 156, 255), 0.78),
+                        new GradientStop(Color.FromArgb(64, 214, 174, 255), 1)
                     },
                     new Point(0, 0), new Point(1, 1))
-            };
-            root.Children.Add(veil);
+            };            root.Children.Add(veil);
 
             rippleLayer = new Canvas { IsHitTestVisible = false };
             rippleScale = new ScaleTransform(0.1, 0.1);
             rippleBloom = new System.Windows.Shapes.Ellipse
             {
-                Opacity = 0.55,
+                Opacity = 0.85,
                 IsHitTestVisible = false,
                 Fill = new RadialGradientBrush(
                     new GradientStopCollection
                     {
                         new GradientStop(Color.FromArgb(0, 255, 255, 255), 0),
-                        new GradientStop(Color.FromArgb(90, 255, 176, 92), 0.30),
-                        new GradientStop(Color.FromArgb(95, 255, 236, 140), 0.45),
-                        new GradientStop(Color.FromArgb(95, 148, 236, 170), 0.60),
-                        new GradientStop(Color.FromArgb(90, 140, 190, 255), 0.76),
-                        new GradientStop(Color.FromArgb(0, 200, 160, 255), 1)
+                        new GradientStop(Color.FromArgb(120, 196, 170, 255), 0.34),
+                        new GradientStop(Color.FromArgb(130, 174, 160, 255), 0.52),
+                        new GradientStop(Color.FromArgb(120, 160, 190, 255), 0.74),
+                        new GradientStop(Color.FromArgb(0, 210, 170, 255), 1)
                     })
             };            rippleBloom.RenderTransform = rippleScale;
             rippleBloom.RenderTransformOrigin = new Point(0.5, 0.5);
