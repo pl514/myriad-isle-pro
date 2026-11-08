@@ -32,10 +32,21 @@ namespace IslandShot
         readonly TextBlock topStatus;
 
         string translatedPath;
+        Canvas rippleLayer;
+        System.Windows.Shapes.Ellipse rippleRing;
+        System.Windows.Shapes.Ellipse rippleBloom;
+        ScaleTransform rippleScale;
         EllipseGeometry revealClip;
         double imageWidth = 1;
         double imageHeight = 1;
         DispatcherTimer ringTimer;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int value);
+
+        const int GwlExStyle = -20;
+        const int WsExTransparent = 0x00000020;
+        const int WsExNoActivate = 0x08000000;
 
         static double DpiScale()
         {
@@ -68,10 +79,65 @@ namespace IslandShot
 
             root = new Grid();
 
-            picture = new Image { Stretch = Stretch.Fill, Source = LoadImage(sourcePath) };
+            picture = new Image { Stretch = Stretch.Fill, Source = LoadImage(sourcePath), Opacity = 0 };
             imageWidth = picture.Source != null ? ((BitmapSource)picture.Source).PixelWidth : 1;
             imageHeight = picture.Source != null ? ((BitmapSource)picture.Source).PixelHeight : 1;
             root.Children.Add(picture);
+
+            // 彩虹扩散层：叠在画面之上，只是光效
+            rippleLayer = new Canvas { IsHitTestVisible = false };
+            rippleScale = new ScaleTransform(0.1, 0.1);
+            rippleBloom = new System.Windows.Shapes.Ellipse
+            {
+                Opacity = 0.85,
+                IsHitTestVisible = false,
+                Fill = new RadialGradientBrush(
+                    new GradientStopCollection
+                    {
+                        new GradientStop(Color.FromArgb(0, 255, 255, 255), 0),
+                        new GradientStop(Color.FromArgb(70, 140, 200, 255), 0.72),
+                        new GradientStop(Color.FromArgb(0, 255, 255, 255), 1)
+                    })
+            };
+            rippleRing = new System.Windows.Shapes.Ellipse
+            {
+                IsHitTestVisible = false,
+                StrokeThickness = 22,
+                Stroke = new LinearGradientBrush(
+                    new GradientStopCollection
+                    {
+                        new GradientStop(Color.FromArgb(235, 255, 99, 132), 0),
+                        new GradientStop(Color.FromArgb(235, 255, 176, 92), 0.16),
+                        new GradientStop(Color.FromArgb(235, 255, 246, 120), 0.32),
+                        new GradientStop(Color.FromArgb(235, 122, 245, 168), 0.48),
+                        new GradientStop(Color.FromArgb(235, 96, 208, 255), 0.64),
+                        new GradientStop(Color.FromArgb(235, 132, 148, 255), 0.80),
+                        new GradientStop(Color.FromArgb(235, 214, 132, 255), 1)
+                    },
+                    new Point(0, 0), new Point(1, 1))
+            };
+            rippleRing.StrokeThickness = 34;
+            rippleRing.Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Color.FromRgb(160, 190, 255),
+                BlurRadius = 60,
+                ShadowDepth = 0,
+                Opacity = 0.95
+            };
+            rippleBloom.Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Color.FromRgb(200, 160, 255),
+                BlurRadius = 90,
+                ShadowDepth = 0,
+                Opacity = 0.9
+            };
+            rippleRing.RenderTransform = rippleScale;
+            rippleRing.RenderTransformOrigin = new Point(0.5, 0.5);
+            rippleBloom.RenderTransform = rippleScale;
+            rippleBloom.RenderTransformOrigin = new Point(0.5, 0.5);
+            rippleLayer.Children.Add(rippleBloom);
+            rippleLayer.Children.Add(rippleRing);
+            root.Children.Add(rippleLayer);
 
             // 扫描光斑：一个发光圆环，跟着"正在翻译的那一行"移动
             ringLayer = new Canvas { IsHitTestVisible = false };
@@ -208,31 +274,82 @@ namespace IslandShot
             return image;
         }
 
+        // 唤醒动效：屏幕中心向外扩散的彩虹光环，边缘柔化发光，扩散中淡出。
+        // 动画期间窗口点透（不挡底层界面），光效结束后再开始翻译。
         void StartReveal()
         {
+            SetClickThrough(true);
+
             double width = ActualWidth > 0 ? ActualWidth : Width;
             double height = ActualHeight > 0 ? ActualHeight : Height;
+            double diagonal = Math.Sqrt(width * width + height * height);
+            double diameter = diagonal * 0.42;
 
-            double cx = Math.Max(0, Math.Min(width, originDip.X - Left));
-            double cy = Math.Max(0, Math.Min(height, originDip.Y - Top));
-            double maxRadius = Math.Sqrt(width * width + height * height);
+            double centerX = width / 2;
+            double centerY = height / 2;
 
-            revealClip = new EllipseGeometry(new Point(cx, cy), 0, 0);
-            root.Clip = revealClip;
+            rippleLayer.Width = width;
+            rippleLayer.Height = height;
 
-            Motion.AnimateDouble(revealClip, EllipseGeometry.RadiusXProperty, 0, maxRadius, 340, Motion.Enter, 0, delegate
+            foreach (var ring in new[] { rippleBloom, rippleRing })
             {
-                Dispatcher.BeginInvoke(new Action(delegate
-                {
-                    root.Clip = null;
-                    BeginTranslate();
-                }), DispatcherPriority.Background);
-            });
-            Motion.AnimateDouble(revealClip, EllipseGeometry.RadiusYProperty, 0, maxRadius, 340, Motion.Enter, 0, null);
-            Motion.AnimateDouble(topBar, UIElement.OpacityProperty, 0, 1, 260, Motion.Enter, 160, null);
-            StartRingPulse();
+                ring.Width = diameter;
+                ring.Height = diameter;
+                Canvas.SetLeft(ring, centerX - diameter / 2);
+                Canvas.SetTop(ring, centerY - diameter / 2);
+                ring.Opacity = 1;
+            }
+
+            // 光圈由小放大
+            Motion.AnimateDouble(rippleScale, ScaleTransform.ScaleXProperty, 0.06, 2.60, 1180, Motion.Enter, 0, null);
+            Motion.AnimateDouble(rippleScale, ScaleTransform.ScaleYProperty, 0.06, 2.60, 1180, Motion.Enter, 0, null);
+
+            // 220ms 后画面淡入（透过光晕出现）
+            var fadeIn = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
+            fadeIn.Tick += delegate
+            {
+                fadeIn.Stop();
+                Motion.AnimateDouble(picture, UIElement.OpacityProperty, 0, 1, 520, Motion.Enter, 0, null);
+            };
+            fadeIn.Start();
+
+            // 650ms 后光晕开始淡出 + 顶部条出现
+            var fadeOut = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(520) };
+            fadeOut.Tick += delegate
+            {
+                fadeOut.Stop();
+                Motion.AnimateDouble(rippleRing, UIElement.OpacityProperty, 1, 0, 780, Motion.Exit, 0, null);
+                Motion.AnimateDouble(rippleBloom, UIElement.OpacityProperty, 1, 0, 780, Motion.Exit, 0, null);
+                Motion.AnimateDouble(topBar, UIElement.OpacityProperty, 0, 1, 260, Motion.Enter, 0, null);
+            };
+            fadeOut.Start();
+
+            // 1300ms 后收尾：移除光效、恢复点中、开始翻译
+            var finish = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1360) };
+            finish.Tick += delegate
+            {
+                finish.Stop();
+                if (rippleLayer != null) rippleLayer.Visibility = Visibility.Collapsed;
+                SetClickThrough(false);
+                StartRingPulse();
+                BeginTranslate();
+            };
+            finish.Start();
         }
 
+        void SetClickThrough(bool enabled)
+        {
+            try
+            {
+                IntPtr handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                if (handle == IntPtr.Zero) return;
+                int style = GetWindowLong(handle, GwlExStyle);
+                if (enabled) style |= WsExTransparent | WsExNoActivate;
+                else style &= ~WsExTransparent;
+                SetWindowLong(handle, GwlExStyle, style);
+            }
+            catch (Exception) { }
+        }
         // 光斑缓慢呼吸
         void StartRingPulse()
         {
