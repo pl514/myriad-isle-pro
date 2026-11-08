@@ -39,6 +39,8 @@ namespace IslandShot
         bool capsuleNoticeHidMusic;
         string capsuleNoticeApp = "wechat";
         string pendingNoticeApp = "";
+        bool unreadWechat;
+        bool unreadQq;
         readonly List<DependencyObject> capsuleNoticeButtons = new List<DependencyObject>();
 
         uint shellHookMessage;
@@ -140,12 +142,37 @@ namespace IslandShot
         void ShowPanelNoticeChip(string appId)
         {
             if (panelNoticeChip == null) return;
-            panelNoticeApp = appId == "qq" ? "qq" : "wechat";
-            bool isQq = panelNoticeApp == "qq";
-            panelNoticeDot.Background = new SolidColorBrush(isQq
-                ? Color.FromRgb(18, 183, 245)
-                : Color.FromRgb(7, 193, 96));
-            panelNoticeText.Text = (isQq ? "QQ" : "微信") + " 未读消息";
+            if (appId == "qq") unreadQq = true; else unreadWechat = true;
+            pendingNoticeApp = appId == "qq" ? "qq" : "wechat";
+            RefreshPanelNoticeChip();
+        }
+
+        // 按未读集合刷新：单个显示名字，两个都显示"微信/QQ"
+        void RefreshPanelNoticeChip()
+        {
+            if (panelNoticeChip == null) return;
+            if (!unreadWechat && !unreadQq)
+            {
+                panelNoticeChip.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            if (unreadWechat && unreadQq)
+            {
+                panelNoticeDot.Background = new SolidColorBrush(Color.FromRgb(7, 193, 96));
+                panelNoticeText.Text = "微信/QQ 未读消息";
+            }
+            else if (unreadQq)
+            {
+                panelNoticeDot.Background = new SolidColorBrush(Color.FromRgb(18, 183, 245));
+                panelNoticeText.Text = "QQ 未读消息";
+            }
+            else
+            {
+                panelNoticeDot.Background = new SolidColorBrush(Color.FromRgb(7, 193, 96));
+                panelNoticeText.Text = "微信 未读消息";
+            }
+
             panelNoticeChip.Visibility = Visibility.Visible;
             panelNoticeChip.IsHitTestVisible = true;
         }
@@ -246,6 +273,7 @@ namespace IslandShot
 
             capsuleNoticeActive = true;
             pendingNoticeApp = capsuleNoticeApp;   // 记成未读：打开面板时显示在三点球右边
+            if (capsuleNoticeApp == "qq") unreadQq = true; else unreadWechat = true;
             capsuleNotice.Visibility = Visibility.Visible;
             capsuleNotice.IsHitTestVisible = true;
             Motion.Fade(capsuleNotice, 1, 140, Motion.Enter, 0, null);
