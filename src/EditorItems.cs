@@ -361,7 +361,17 @@ namespace IslandShot
 
         public override void SetBounds(Rect bounds)
         {
+            double oldHeight = Math.Max(1, Bounds.Height);
+
+            // 只改宽度：文字按新宽度重新换行，字号不变
             Box = new Rect(bounds.X, bounds.Y, Math.Max(20, bounds.Width), Box.Height);
+
+            // 高度变了：按比例缩放字号，实现"上下拉长/压扁"
+            if (bounds.Height > 8 && Math.Abs(bounds.Height - oldHeight) > 0.5)
+            {
+                double scale = bounds.Height / oldHeight;
+                FontSize = Math.Max(6, Math.Min(300, FontSize * scale));
+            }
             Layout();
         }
 

@@ -360,7 +360,11 @@ namespace IslandShot
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            if (!dragging) return;
+            if (!dragging)
+            {
+                UpdateCursor(ToImage(e.GetPosition(this)));
+                return;
+            }
             Point imagePoint = ToImage(e.GetPosition(this));
 
             if (Tool == EditorTool.Pan &&
@@ -529,6 +533,47 @@ namespace IslandShot
                 Action<Rect> request2 = TextRequested;
                 if (request2 != null) request2(hitText.Bounds);
             }
+        }
+
+        // 鼠标悬停反馈：手柄→对应方向的缩放光标；对象本体→移动光标；空白→箭头
+        void UpdateCursor(Point imagePoint)
+        {
+            if (Tool == EditorTool.Pan) { Cursor = Cursors.Hand; return; }
+            if (Tool != EditorTool.Select) { Cursor = Cursors.Cross; return; }
+
+            if (Selected != null)
+            {
+                EditorHandle handle = HitHandle(imagePoint, Selected.Bounds);
+                switch (handle)
+                {
+                    case EditorHandle.TopLeft:
+                    case EditorHandle.BottomRight:
+                        Cursor = Cursors.SizeNWSE;
+                        return;
+                    case EditorHandle.TopRight:
+                    case EditorHandle.BottomLeft:
+                        Cursor = Cursors.SizeNESW;
+                        return;
+                    case EditorHandle.Top:
+                    case EditorHandle.Bottom:
+                        Cursor = Cursors.SizeNS;
+                        return;
+                    case EditorHandle.Left:
+                    case EditorHandle.Right:
+                        Cursor = Cursors.SizeWE;
+                        return;
+                }
+            }
+
+            Cursor = HitTest(imagePoint) != null ? Cursors.SizeAll : Cursors.Arrow;
+        }
+
+        protected override void OnMouseLeave(MouseEventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (dragging) return;
+            Cursor = Tool == EditorTool.Pan ? Cursors.Hand
+                : (Tool == EditorTool.Select ? Cursors.Arrow : Cursors.Cross);
         }
 
         // ------------------------------------------------------------ 命中
