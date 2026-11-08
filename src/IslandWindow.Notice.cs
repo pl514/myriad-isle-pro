@@ -48,6 +48,7 @@ namespace IslandShot
         uint shellHookMessage;
         bool shellHookRegistered;
         AudioWatcher audioWatcher;
+        DshWatcher dshWatcher;
 
         // 把提示层挂到胶囊里（胶囊内容是一个 Grid，里面已有 layers + 迷你播放器）
         void AttachCapsuleNotice()
@@ -75,6 +76,21 @@ namespace IslandShot
                     }), DispatcherPriority.Background);
                 });
                 audioWatcher.Start();
+
+            // DSH 干活结束 → 胶囊提醒
+            try
+            {
+                dshWatcher = new DshWatcher(delegate
+                {
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        MessengerLog("dsh finished");
+                        ShowCapsuleNotice("dsh");
+                    }), DispatcherPriority.Background);
+                });
+                dshWatcher.Start();
+            }
+            catch (Exception) { }
             }
             catch (Exception ex)
             {
@@ -84,6 +100,7 @@ namespace IslandShot
             Closed += delegate
             {
                 if (audioWatcher != null) audioWatcher.Dispose();
+        if (dshWatcher != null) dshWatcher.Dispose();
             };
         }
 
