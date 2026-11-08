@@ -32,6 +32,7 @@ namespace IslandShot
         public string OutputPath;
         public int LineCount;
         public int TranslatedCount;
+        public int UnchangedCount;
         public readonly List<ImageTranslationPair> Pairs = new List<ImageTranslationPair>();
     }
 
@@ -140,8 +141,32 @@ namespace IslandShot
             for (int i = 0; i < targets.Count && i < translations.Count; i++)
             {
                 result.Pairs.Add(new ImageTranslationPair { Source = targets[i].Text, Target = translations[i] });
+                if (Normalize(targets[i].Text) == Normalize(translations[i])) result.UnchangedCount++;
             }
             return result;
+        }
+
+        // 批量请求容易撞上免费接口限流：失败后等一下再试一次，仍然失败才退回原文
+        static string TryTranslate(string text, string pair)
+        {
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                try { return TranslateService.TranslateAsync(text, pair).GetAwaiter().GetResult(); }
+                catch (Exception) { if (attempt == 0) Thread.Sleep(800); }
+            }
+            return null;
+        }
+
+        static string Normalize(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            var builder = new StringBuilder();
+            foreach (char c in text)
+            {
+                if (char.IsWhiteSpace(c) || char.IsPunctuation(c)) continue;
+                builder.Append(char.ToLowerInvariant(c));
+            }
+            return builder.ToString();
         }
 
         static bool HasLatin(string text)
@@ -173,8 +198,7 @@ namespace IslandShot
                 string chunkResult = null;
                 try
                 {
-                    chunkResult = TranslateService.TranslateAsync(builder.ToString(), pair)
-                        .GetAwaiter().GetResult();
+                    chunkResult = TryTranslate(builder.ToString(), pair);
                 }
                 catch (Exception) { }
 
@@ -189,8 +213,7 @@ namespace IslandShot
                         string single = null;
                         try
                         {
-                            single = TranslateService.TranslateAsync(lines[index + i].Text, pair)
-                                .GetAwaiter().GetResult();
+                            single = TryTranslate(lines[index + i].Text, pair);
                         }
                         catch (Exception) { }
                         results.Add(string.IsNullOrWhiteSpace(single) ? lines[index + i].Text : single.Trim());

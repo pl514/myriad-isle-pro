@@ -365,7 +365,16 @@ namespace IslandShot
             }
 
 
-            topStatus.Text = "已翻译 " + result.TranslatedCount + " 行";
+            int unchanged = result.UnchangedCount;
+            if (unchanged > 0 && unchanged * 3 >= result.TranslatedCount * 2)
+            {
+                // 大部分行没替换：基本是免费接口限流，明确提示而不是假装成功
+                topStatus.Text = "翻译服务限流：" + unchanged + " / " + result.TranslatedCount + " 行未能替换，稍后重试";
+            }
+            else
+            {
+                topStatus.Text = "已翻译 " + result.TranslatedCount + " 行" + (unchanged > 0 ? "（" + unchanged + " 行未变）" : "");
+            }
             hintText.Text = "Esc 或右上角 ✕ 关闭 · 右键可保存图片";
             Motion.AnimateDouble(statusPill, UIElement.OpacityProperty, 1, 0, 260, Motion.Exit, 1400, null);
         }
