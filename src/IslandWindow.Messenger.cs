@@ -134,6 +134,8 @@ namespace IslandShot
         void ClearUnreadNotice()
         {
             pendingNoticeApp = null;
+            unreadWechat = false;
+            unreadQq = false;
             HidePanelNoticeChip();
             if (capsuleNoticeActive) HideCapsuleNotice();
         }
