@@ -882,10 +882,10 @@ namespace IslandShot
             return host;
         }
 
-        void MoveTabPill(bool text, bool animate)
+        void MoveTabPill(int mode, bool animate)
         {
             if (tabPill == null || tabPillShift == null) return;
-            double target = text ? 58 : 0;
+            double target = Math.Max(0, mode) * 58;
             if (!tabPillPlaced)
             {
                 tabPillPlaced = true;

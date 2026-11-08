@@ -53,6 +53,8 @@ namespace IslandShot
         StackPanel textList;
         TextBlock textEmpty;
         Button imageTab, textTab, textClear, imageClear;
+        Button translateTab;
+        bool showingTranslate;
         bool showingText;
         bool capsuleClosed;
         string lastClipboardHash = "";
@@ -765,27 +767,53 @@ namespace IslandShot
 
         void SetTab(bool text)
         {
+            SetTabMode(text ? 1 : 0);
+        }
+
+        void SetTabTranslate()
+        {
+            SetTabMode(2);
+        }
+
+        void SetTabMode(int mode)
+        {
+            bool text = mode == 1;
+            bool translate = mode == 2;
             showingText = text;
-            if (scroller != null) scroller.Visibility = text ? Visibility.Collapsed : Visibility.Visible;
+            showingTranslate = translate;
+
+            if (scroller != null) scroller.Visibility = mode == 0 ? Visibility.Visible : Visibility.Collapsed;
             if (textScroller != null) textScroller.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
-            if (empty != null) empty.Visibility = !text && (cards == null || cards.Children.Count == 0) ? Visibility.Visible : Visibility.Collapsed;
+            if (translateView != null) translateView.Visibility = translate ? Visibility.Visible : Visibility.Collapsed;
+
+            if (empty != null) empty.Visibility = mode == 0 && (cards == null || cards.Children.Count == 0) ? Visibility.Visible : Visibility.Collapsed;
             if (textEmpty != null) textEmpty.Visibility = text && (textList == null || textList.Children.Count == 0) ? Visibility.Visible : Visibility.Collapsed;
+
+            var idle = new SolidColorBrush(Color.FromRgb(167, 159, 196));
             if (imageTab != null)
             {
                 imageTab.Background = TabIdleWash;
-                imageTab.Foreground = text ? new SolidColorBrush(Color.FromRgb(167, 159, 196)) : Brushes.White;
+                imageTab.Foreground = mode == 0 ? Brushes.White : idle;
             }
             if (textTab != null)
             {
                 textTab.Background = TabIdleWash;
-                textTab.Foreground = text ? Brushes.White : new SolidColorBrush(Color.FromRgb(167, 159, 196));
+                textTab.Foreground = text ? Brushes.White : idle;
             }
+            if (translateTab != null)
+            {
+                translateTab.Background = TabIdleWash;
+                translateTab.Foreground = translate ? Brushes.White : idle;
+            }
+
             if (textClear != null) textClear.Visibility = text ? Visibility.Visible : Visibility.Collapsed;
-            if (imageClear != null) imageClear.Visibility = text ? Visibility.Collapsed : Visibility.Visible;
-            MoveTabPill(text, IsLoaded);
+            if (imageClear != null) imageClear.Visibility = mode == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            MoveTabPill(mode, IsLoaded);
             FadeEmptyStates();
             if (text) AnimateTextCards();
-            if (!text) ScrollImagesToEnd();
+            if (mode == 0) ScrollImagesToEnd();
+            if (translate && translateInput != null) translateInput.Focus();
         }
 
         void ScrollImagesToEnd()
@@ -815,8 +843,10 @@ namespace IslandShot
             var tabs = new StackPanel { Orientation = Orientation.Horizontal };
             imageTab = TabButton("图片", delegate { SetTab(false); });
             textTab = TabButton("文字", delegate { SetTab(true); });
+            translateTab = TabButton("翻译", delegate { SetTabTranslate(); });
             tabs.Children.Add(imageTab);
             tabs.Children.Add(textTab);
+            tabs.Children.Add(translateTab);
             tabHost.Child = BuildTabHost(tabs);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             textClear = ToolButton("清空", 10);
@@ -956,6 +986,7 @@ namespace IslandShot
             content.Children.Add(empty);
             content.Children.Add(textScroller);
             content.Children.Add(textEmpty);
+            content.Children.Add(BuildTranslateView());
             content.Children.Add(aiPickBar);
             Grid.SetRow(content, 1);
             body.Children.Add(content);
