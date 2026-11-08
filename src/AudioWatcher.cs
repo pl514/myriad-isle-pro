@@ -140,6 +140,7 @@ namespace IslandShot
             if (string.Equals(name, "Weixin", StringComparison.OrdinalIgnoreCase)) return "wechat";
             if (string.Equals(name, "WeChat", StringComparison.OrdinalIgnoreCase)) return "wechat";
             if (string.Equals(name, "QQ", StringComparison.OrdinalIgnoreCase)) return "qq";
+            if (name.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0) return "dsh";
             return null;
         }
 

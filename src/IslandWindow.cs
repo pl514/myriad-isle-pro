@@ -144,8 +144,9 @@ namespace IslandShot
                 e.Handled = true;
                 if (app == "dsh")
                 {
-                    // DSH 是网页 GUI，没有客户端可跳：直接把面板打开
-                    SetExpanded(true);
+                    MessengerLog("dsh click -> expand");
+                    try { SetExpanded(true); }
+                    catch (Exception ex) { MessengerLog("dsh expand failed: " + ex.Message); }
                     ClearUnreadNotice();
                     return;
                 }
