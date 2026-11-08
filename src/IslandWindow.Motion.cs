@@ -406,6 +406,7 @@ namespace IslandShot
         {
             if (expanded == value) return;
             expanded = value;
+            if (!value) MessengerLog("collapse from " + new System.Diagnostics.StackTrace(1, false).GetFrame(0).GetMethod().Name);
             FrameworkElement surface = aiVisible && aiPanel != null
                 ? (FrameworkElement)aiPanel
                 : (musicVisible && musicPanel != null ? (FrameworkElement)musicPanel : panel);
