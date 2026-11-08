@@ -1076,6 +1076,20 @@ namespace IslandShot
             else Motion.Delay(380, delegate { UpdateCapsuleMusicMode(); });
         }
 
+        // 判断前台窗口是不是本程序自己的（预览窗、编辑器、播放器都算）
+        bool OwnWindowForeground()
+        {
+            try
+            {
+                IntPtr foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero) return false;
+                int pid;
+                GetWindowThreadProcessId(foreground, out pid);
+                return pid == System.Diagnostics.Process.GetCurrentProcess().Id;
+            }
+            catch (Exception) { return false; }
+        }
+
         void ToggleCapsule()
         {
             if (!capsuleClosed)
