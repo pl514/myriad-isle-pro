@@ -145,9 +145,11 @@ namespace IslandShot
                 if (app == "dsh")
                 {
                     MessengerLog("dsh click -> expand");
-                    try { SetExpanded(true); }
-                    catch (Exception ex) { MessengerLog("dsh expand failed: " + ex.Message); }
-                    ClearUnreadNotice();
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        SetExpanded(true);
+                        MessengerLog("after expand: expanded=" + expanded + " panelVis=" + (panel == null ? "null" : panel.Visibility.ToString()) + " w=" + (int)Width + " h=" + (int)Height);
+                    }), System.Windows.Threading.DispatcherPriority.Background);
                     return;
                 }
                 OpenMessengerApp(app);
