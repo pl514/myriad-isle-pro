@@ -317,7 +317,11 @@ namespace IslandShot
         void ShowCapsuleNotice(string appId)
         {
             if (capsuleNotice == null) return;
-            if (IsSuppressed(appId == "qq" ? "qq" : "wechat")) return;
+            if (appId != "dsh")
+            {
+                if (IsSuppressed(appId == "qq" ? "qq" : "wechat")) return;
+                if (IsMessengerForeground(appId == "qq" ? "qq" : "wechat")) return;
+            }
             if (IsMessengerForeground(appId == "qq" ? "qq" : "wechat")) return;
             if (expanded)
             {
@@ -326,17 +330,18 @@ namespace IslandShot
                 ShowPanelNoticeChip(appId);
                 return;
             }
-            capsuleNoticeApp = appId == "qq" ? "qq" : "wechat";
+            capsuleNoticeApp = appId == "qq" ? "qq" : (appId == "dsh" ? "dsh" : "wechat");
             bool isQq = capsuleNoticeApp == "qq";
+            bool isDsh = capsuleNoticeApp == "dsh";
 
-            capsuleNoticeDot.Background = new SolidColorBrush(isQq
-                ? Color.FromRgb(18, 183, 245)
-                : Color.FromRgb(7, 193, 96));
-            capsuleNoticeText.Text = (isQq ? "QQ" : "微信") + " 有新消息";
+            capsuleNoticeDot.Background = new SolidColorBrush(isDsh
+                ? Color.FromRgb(124, 108, 242)
+                : isQq ? Color.FromRgb(18, 183, 245) : Color.FromRgb(7, 193, 96));
+            capsuleNoticeText.Text = isDsh ? "DSH 任务完成" : (isQq ? "QQ" : "微信") + " 有新消息";
 
             capsuleNoticeActive = true;
-            pendingNoticeApp = capsuleNoticeApp;   // 记成未读：打开面板时显示在三点球右边
-            if (capsuleNoticeApp == "qq") unreadQq = true; else unreadWechat = true;
+            if (!isDsh) pendingNoticeApp = capsuleNoticeApp;   // DSH 不参与未读胶囊
+            if (!isDsh) { if (capsuleNoticeApp == "qq") unreadQq = true; else unreadWechat = true; }
             capsuleNotice.Visibility = Visibility.Visible;
             capsuleNotice.IsHitTestVisible = true;
             Motion.Fade(capsuleNotice, 1, 140, Motion.Enter, 0, null);
