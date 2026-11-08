@@ -895,6 +895,7 @@ namespace IslandShot
             };
             headerLeft.Children.Add(tabHost);
             headerLeft.Children.Add(BuildOrbHub());
+            headerLeft.Children.Add(BuildPanelNoticeChip());
             header.Children.Add(headerLeft);
             header.Children.Add(actions);
 
@@ -1084,7 +1085,7 @@ namespace IslandShot
             if (mouseHook != null) mouseHook.Enabled = value;
             SetExpandedAnimated(value);
             if (!value) ResetOrbHubInstant();
-            if (!value) ShowPendingNotice();
+            if (!value) { ShowPendingNotice(); HidePanelNoticeChip(); }
             // 收起后如果正在放歌：胶囊变宽成迷你播放器（等形变播完再变，避免两段动画打架）
             if (value) UpdateCapsuleMusicMode();
             else Motion.Delay(380, delegate { UpdateCapsuleMusicMode(); });

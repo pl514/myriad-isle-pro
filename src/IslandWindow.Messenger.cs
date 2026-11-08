@@ -143,6 +143,7 @@ namespace IslandShot
 
                 // 用户把微信/QQ 切到前台了：认为已经看过消息，消息小胶囊可以收了
                 if (capsuleNoticeActive && capsuleNoticeApp == app) HideCapsuleNotice();
+                if (panelNoticeApp == app) HidePanelNoticeChip();
 
                 Win32Rect rect;
                 if (!GetWindowRect(foreground, out rect)) return;

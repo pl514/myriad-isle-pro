@@ -83,6 +83,80 @@ namespace IslandShot
             };
         }
 
+        // 展开面板里、三点球右边的消息胶囊：绿点 + 微信/QQ 未读消息
+        Border panelNoticeChip;
+        Border panelNoticeDot;
+        TextBlock panelNoticeText;
+        string panelNoticeApp;
+
+        FrameworkElement BuildPanelNoticeChip()
+        {
+            panelNoticeDot = new Border
+            {
+                Width = 7,
+                Height = 7,
+                CornerRadius = new CornerRadius(4),
+                Background = new SolidColorBrush(Color.FromRgb(7, 193, 96)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+
+            panelNoticeText = new TextBlock
+            {
+                Text = "",
+                FontFamily = new FontFamily("Microsoft YaHei UI"),
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(232, 236, 246)),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            row.Children.Add(panelNoticeDot);
+            row.Children.Add(panelNoticeText);
+
+            panelNoticeChip = new Border
+            {
+                CornerRadius = new CornerRadius(11),
+                Background = new SolidColorBrush(Color.FromArgb(230, 34, 38, 50)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(10, 5, 12, 5),
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = Cursors.Hand,
+                Visibility = Visibility.Collapsed,
+                Child = row,
+                ToolTip = "点击跳转到客户端"
+            };
+            panelNoticeChip.MouseLeftButtonUp += delegate
+            {
+                string app = panelNoticeApp;
+                HidePanelNoticeChip();
+                if (!string.IsNullOrEmpty(app)) OpenMessengerApp(app);
+            };
+            return panelNoticeChip;
+        }
+
+        void ShowPanelNoticeChip(string appId)
+        {
+            if (panelNoticeChip == null) return;
+            panelNoticeApp = appId == "qq" ? "qq" : "wechat";
+            bool isQq = panelNoticeApp == "qq";
+            panelNoticeDot.Background = new SolidColorBrush(isQq
+                ? Color.FromRgb(18, 183, 245)
+                : Color.FromRgb(7, 193, 96));
+            panelNoticeText.Text = (isQq ? "QQ" : "微信") + " 未读消息";
+            panelNoticeChip.Visibility = Visibility.Visible;
+            panelNoticeChip.IsHitTestVisible = true;
+        }
+
+        void HidePanelNoticeChip()
+        {
+            if (panelNoticeChip == null) return;
+            panelNoticeChip.Visibility = Visibility.Collapsed;
+            panelNoticeApp = null;
+        }
+
         Grid BuildCapsuleNotice()
         {
             var grid = new Grid
@@ -155,8 +229,8 @@ namespace IslandShot
             if (capsuleNotice == null) return;
             if (expanded)
             {
-                // 面板展开时胶囊不可见：先记下来，收起后再显示
-                pendingNoticeApp = appId == "qq" ? "qq" : "wechat";
+                // 面板展开时：提示出现在三点球右边的消息胶囊里
+                ShowPanelNoticeChip(appId);
                 return;
             }
             capsuleNoticeApp = appId == "qq" ? "qq" : "wechat";
