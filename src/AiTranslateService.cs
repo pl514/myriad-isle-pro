@@ -17,6 +17,7 @@ namespace IslandShot
         static bool probed;
         static AiModelConfig model;
         static string apiKey;
+        internal static string LastError = "";
 
         static HttpClient CreateClient()
         {
@@ -54,10 +55,56 @@ namespace IslandShot
             catch (Exception) { }
         }
 
+        // 列出面板里配了 key 的模型，供翻译页选择
+        internal static List<AiModelConfig> AvailableModels()
+        {
+            var list = new List<AiModelConfig>();
+            try
+            {
+                foreach (AiModelConfig item in AiConfigStore.LoadModels())
+                {
+                    if (string.IsNullOrEmpty(item.BaseUrl) || string.IsNullOrEmpty(item.Model)) continue;
+                    if (item.BaseUrl.StartsWith("web://", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.IsNullOrEmpty(item.KeyRef)) continue;
+                    if (!AiConfigStore.HasKey(item.KeyRef)) continue;
+                    list.Add(item);
+                }
+            }
+            catch (Exception) { }
+            return list;
+        }
+
+        // 指定模型（模型 id）；传空表示自动挑第一个可用的
+        internal static void SelectModel(string modelId)
+        {
+            probed = true;
+            model = null;
+            apiKey = null;
+            try
+            {
+                foreach (AiModelConfig item in AvailableModels())
+                {
+                    if (!string.IsNullOrEmpty(modelId) && !string.Equals(item.Id, modelId, StringComparison.OrdinalIgnoreCase)) continue;
+                    string key = AiConfigStore.GetKey(item.KeyRef);
+                    if (string.IsNullOrEmpty(key)) continue;
+                    model = item;
+                    apiKey = key;
+                    return;
+                }
+            }
+            catch (Exception) { }
+        }
+
         internal static bool IsAvailable()
         {
             Ensure();
             return model != null && !string.IsNullOrEmpty(apiKey);
+        }
+
+        internal static bool UsingModel(string modelId)
+        {
+            Ensure();
+            return model != null && string.Equals(model.Id, modelId, StringComparison.OrdinalIgnoreCase);
         }
 
         internal static string DisplayName()
@@ -118,15 +165,16 @@ namespace IslandShot
                         }
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    LastError = ex.Message;
                     if (attempt == 0) Thread.Sleep(600);
                 }
             }
             return null;
         }
 
-        // 从 chat/completions 响应里取 choices[0].message.content
+        // 从 chat/completions 响应里取 choices[0].message.content（对数组类型做兼容）
         static string ExtractContent(string json)
         {
             if (string.IsNullOrEmpty(json)) return null;
@@ -134,25 +182,34 @@ namespace IslandShot
             {
                 var serializer = new JavaScriptSerializer { MaxJsonLength = 8 * 1024 * 1024 };
                 var root = serializer.Deserialize<Dictionary<string, object>>(json);
-                if (root == null) return null;
+                if (root == null) { LastError = "返回不是 JSON"; return null; }
 
                 object choices;
-                if (!root.TryGetValue("choices", out choices)) return null;
-                var list = choices as object[];
-                if (list == null || list.Length == 0) return null;
+                if (!root.TryGetValue("choices", out choices) || choices == null)
+                {
+                    object error;
+                    if (root.TryGetValue("error", out error) && error != null) LastError = "服务报错：" + error.ToString();
+                    return null;
+                }
+
+                var list = choices as System.Collections.IList;
+                if (list == null || list.Count == 0) { LastError = "choices 为空"; return null; }
                 var first = list[0] as Dictionary<string, object>;
-                if (first == null) return null;
+                if (first == null) { LastError = "choices[0] 类型异常"; return null; }
 
                 object message;
-                if (!first.TryGetValue("message", out message)) return null;
+                if (!first.TryGetValue("message", out message)) { LastError = "无 message"; return null; }
                 var messageDict = message as Dictionary<string, object>;
-                if (messageDict == null) return null;
+                if (messageDict == null) { LastError = "message 类型异常"; return null; }
 
                 object content;
-                if (!messageDict.TryGetValue("content", out content) || content == null) return null;
+                if (!messageDict.TryGetValue("content", out content) || content == null) { LastError = "content 为空"; return null; }
                 return content.ToString();
             }
-            catch (Exception) { return null; }
-        }
-    }
+            catch (Exception ex)
+            {
+                LastError = "解析失败：" + ex.Message;
+                return null;
+            }
+        }    }
 }

@@ -2,10 +2,50 @@ using System;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
+using System.Text;
 using System.Web.Script.Serialization;
 
 namespace IslandShot
 {
+    // 翻译引擎选择：auto（有 key 就用 AI）/ free（只用 MyMemory）/ 具体模型 id
+    internal static class TranslateSettings
+    {
+        internal const string Auto = "auto";
+        internal const string Free = "free";
+
+        static string Path_
+        {
+            get
+            {
+                return System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "translate-engine.txt");
+            }
+        }
+
+        internal static string Engine
+        {
+            get
+            {
+                try
+                {
+                    if (!System.IO.File.Exists(Path_)) return Auto;
+                    string text = System.IO.File.ReadAllText(Path_, Encoding.UTF8).Trim();
+                    return text.Length == 0 ? Auto : text;
+                }
+                catch (Exception) { return Auto; }
+            }
+            set
+            {
+                try
+                {
+                    string folder = System.IO.Path.GetDirectoryName(Path_);
+                    if (!string.IsNullOrEmpty(folder) && !System.IO.Directory.Exists(folder)) System.IO.Directory.CreateDirectory(folder);
+                    System.IO.File.WriteAllText(Path_, string.IsNullOrEmpty(value) ? Auto : value, new UTF8Encoding(false));
+                }
+                catch (Exception) { }
+            }
+        }
+    }
+
     // 翻译服务：优先用应用里配置的 AI 模型；没有 key 时退回 MyMemory 免费接口。
     // 以后要换供应商，只需要改 TranslateAsync 里的实现。
     internal static class TranslateService
@@ -60,12 +100,27 @@ namespace IslandShot
             return pair == "zh-CN|en" ? "英文" : "中文";
         }
 
+        // 界面显示当前实际用的是哪个引擎
+        internal static string EngineLabel()
+        {
+            if (string.Equals(TranslateSettings.Engine, TranslateSettings.Free, StringComparison.OrdinalIgnoreCase))
+                return "免费 MyMemory";
+            if (AiTranslateService.IsAvailable()) return AiTranslateService.DisplayName();
+            return "免费 MyMemory";
+        }
+
         public static async Task<string> TranslateAsync(string text, string pair)
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
 
-            // 先走应用里已配置的 AI 模型（免费额度高、质量好、不限流）
-            if (AiTranslateService.IsAvailable())
+            // 按设置选择引擎：auto = 有 key 就用 AI；free = 只用 MyMemory；其他 = 指定模型
+            string engine = TranslateSettings.Engine;
+            if (!string.Equals(engine, TranslateSettings.Free, StringComparison.OrdinalIgnoreCase))
+            {
+                string wanted = string.Equals(engine, TranslateSettings.Auto, StringComparison.OrdinalIgnoreCase) ? "" : engine;
+                AiTranslateService.SelectModel(wanted);
+            }
+            if (!string.Equals(engine, TranslateSettings.Free, StringComparison.OrdinalIgnoreCase) && AiTranslateService.IsAvailable())
             {
                 string ai = await Task.Run(delegate { return AiTranslateService.Translate(text, pair); }).ConfigureAwait(false);
                 if (!string.IsNullOrWhiteSpace(ai)) return ai.Trim();

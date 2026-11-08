@@ -42,6 +42,7 @@ namespace IslandShot
         Button translateCopyButton;
         TextBlock translateStatus;
         Button translateDirButton;
+        Button translateEngineButton;
         Border translateHistoryDrawer;
         TranslateTransform translateHistoryShift;
         TextBlock translateDrawerGlyph;
@@ -223,6 +224,14 @@ namespace IslandShot
             translateDirButton.FontSize = 10.5;
             translateDirButton.ToolTip = "点一下切换翻译方向";
             topRow.Children.Add(translateDirButton);
+
+            translateEngineButton = TrButton("引擎：自动", false, delegate { OpenEngineMenu(); });
+            translateEngineButton.FontSize = 10.5;
+            translateEngineButton.Margin = new Thickness(8, 0, 0, 0);
+            translateEngineButton.ToolTip = "选择翻译引擎（可检测是否可用）";
+            topRow.Children.Add(translateEngineButton);
+            UpdateEngineButton();
+
             Grid.SetRow(topRow, 0);
             left.Children.Add(topRow);
 
@@ -714,6 +723,93 @@ namespace IslandShot
             translatePlaceholder.Visibility = string.IsNullOrEmpty(translateInput.Text)
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+        }
+
+        void UpdateEngineButton()
+        {
+            if (translateEngineButton == null) return;
+            string engine = TranslateSettings.Engine;
+            if (string.Equals(engine, TranslateSettings.Free, StringComparison.OrdinalIgnoreCase))
+            {
+                translateEngineButton.Content = "引擎：免费";
+                return;
+            }
+            if (string.Equals(engine, TranslateSettings.Auto, StringComparison.OrdinalIgnoreCase))
+            {
+                translateEngineButton.Content = "引擎：自动";
+                return;
+            }
+            string label = engine;
+            foreach (AiModelConfig item in AiTranslateService.AvailableModels())
+            {
+                if (string.Equals(item.Id, engine, StringComparison.OrdinalIgnoreCase)) { label = item.DisplayName(); break; }
+            }
+            translateEngineButton.Content = "引擎：" + label;
+        }
+
+        void OpenEngineMenu()
+        {
+            var menu = new ContextMenu();
+
+            var autoItem = new MenuItem { Header = "自动（有可用 AI 就用 AI，否则免费）", IsCheckable = true,
+                IsChecked = string.Equals(TranslateSettings.Engine, TranslateSettings.Auto, StringComparison.OrdinalIgnoreCase) };
+            autoItem.Click += delegate { TranslateSettings.Engine = TranslateSettings.Auto; UpdateEngineButton(); };
+            menu.Items.Add(autoItem);
+
+            var freeItem = new MenuItem { Header = "免费 MyMemory（无需 key）", IsCheckable = true,
+                IsChecked = string.Equals(TranslateSettings.Engine, TranslateSettings.Free, StringComparison.OrdinalIgnoreCase) };
+            freeItem.Click += delegate { TranslateSettings.Engine = TranslateSettings.Free; UpdateEngineButton(); };
+            menu.Items.Add(freeItem);
+
+            menu.Items.Add(new Separator());
+            var models = AiTranslateService.AvailableModels();
+            if (models.Count == 0)
+            {
+                var none = new MenuItem { Header = "（AI 面板里还没有配 key 的模型）", IsEnabled = false };
+                menu.Items.Add(none);
+            }
+            foreach (AiModelConfig item in models)
+            {
+                string id = item.Id;
+                var entry = new MenuItem { Header = item.DisplayName(), IsCheckable = true,
+                    IsChecked = string.Equals(TranslateSettings.Engine, id, StringComparison.OrdinalIgnoreCase) };
+                entry.Click += delegate { TranslateSettings.Engine = id; UpdateEngineButton(); };
+                menu.Items.Add(entry);
+            }
+
+            menu.Items.Add(new Separator());
+            var detect = new MenuItem { Header = "检测当前引擎" };
+            detect.Click += delegate { DetectTranslateEngine(); };
+            menu.Items.Add(detect);
+
+            menu.PlacementTarget = translateEngineButton;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+
+        void DetectTranslateEngine()
+        {
+            if (translateStatus != null) translateStatus.Text = "正在检测翻译引擎…";
+            string engine = TranslateSettings.Engine;
+            Task.Run(delegate
+            {
+                string result;
+                try
+                {
+                    string sample = "Good morning. The meeting starts at nine.";
+                    string translated = TranslateService.TranslateAsync(sample, "en|zh-CN").GetAwaiter().GetResult();
+                    if (string.IsNullOrWhiteSpace(translated)) result = "检测结果：返回为空（" + engine + "）";
+                    else result = "检测结果：" + translated.Trim() + "（" + TranslateService.EngineLabel() + "）";
+                }
+                catch (Exception ex)
+                {
+                    result = "检测失败：" + ex.Message;
+                }
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    if (translateStatus != null) translateStatus.Text = result;
+                }), System.Windows.Threading.DispatcherPriority.Background);
+            });
         }
 
         void ToggleTranslateDirection()
