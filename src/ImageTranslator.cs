@@ -39,23 +39,61 @@ namespace IslandShot
             List<OcrLineInfo> lines = OcrService.Recognize(imagePath);
             result.LineCount = lines.Count;
 
-            // 只处理含中文的行（已经是英文的不用翻）
+            // 中文引擎读英文会出现 "HeIIo"、"P ease" 这种碎片：
+            // 统计一下字符构成，拉丁字母明显更多时换成英文引擎重新识别。
+            int latinChars = 0, cjkChars = 0;
+            foreach (OcrLineInfo line in lines)
+            {
+                foreach (char c in line.Text)
+                {
+                    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) latinChars++;
+                    else if (c >= 0x4E00 && c <= 0x9FFF) cjkChars++;
+                }
+            }
+            if (latinChars > cjkChars * 3 && latinChars > 20)
+            {
+                try
+                {
+                    List<OcrLineInfo> englishLines = OcrService.Recognize(imagePath, "en-US");
+                    if (englishLines.Count > 0) lines = englishLines;
+                }
+                catch (Exception) { }
+            }
+
+            // 默认方向：外文 → 中文。
+            // 只翻译"含拉丁字母"的行，纯中文行原样保留；整图没有外文时才退回中文→英文。
             var targets = new List<OcrLineInfo>();
             foreach (OcrLineInfo line in lines)
             {
-                if (!line.HasChinese) continue;
                 if (line.Text.Trim().Length == 0) continue;
+                if (!HasLatin(line.Text)) continue;
                 targets.Add(line);
                 if (targets.Count >= MaxLines) break;
             }
 
+            string pair = "en|zh-CN";
             if (targets.Count == 0)
             {
-                throw new Exception("这张图里没识别到中文");
+                foreach (OcrLineInfo line in lines)
+                {
+                    if (line.Text.Trim().Length == 0) continue;
+                    if (!line.HasChinese) continue;
+                    targets.Add(line);
+                    if (targets.Count >= MaxLines) break;
+                }
+                pair = "zh-CN|en";
             }
 
-            if (status != null) status("正在翻译 " + targets.Count + " 行…");
-            var translations = TranslateLines(targets, status);
+            if (targets.Count == 0)
+            {
+                throw new Exception("这张图里没识别到可翻译的文字");
+            }
+
+            if (status != null)
+            {
+                status("正在翻译 " + targets.Count + " 行（" + (pair == "en|zh-CN" ? "外文 → 中文" : "中文 → 英文") + "）…");
+            }
+            var translations = TranslateLines(targets, pair, status);
 
             if (status != null) status("正在生成图片…");
             string output = Render(imagePath, targets, translations, result);
@@ -69,7 +107,17 @@ namespace IslandShot
             return result;
         }
 
-        static List<string> TranslateLines(List<OcrLineInfo> lines, Action<string> status)
+        static bool HasLatin(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            foreach (char c in text)
+            {
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) return true;
+            }
+            return false;
+        }
+
+        static List<string> TranslateLines(List<OcrLineInfo> lines, string pair, Action<string> status)
         {
             var results = new List<string>();
             int index = 0;
@@ -87,7 +135,7 @@ namespace IslandShot
                 string chunkResult = null;
                 try
                 {
-                    chunkResult = TranslateService.TranslateAsync(builder.ToString(), "zh-CN|en")
+                    chunkResult = TranslateService.TranslateAsync(builder.ToString(), pair)
                         .GetAwaiter().GetResult();
                 }
                 catch (Exception) { }
@@ -103,7 +151,7 @@ namespace IslandShot
                         string single = null;
                         try
                         {
-                            single = TranslateService.TranslateAsync(lines[index + i].Text, "zh-CN|en")
+                            single = TranslateService.TranslateAsync(lines[index + i].Text, pair)
                                 .GetAwaiter().GetResult();
                         }
                         catch (Exception) { }

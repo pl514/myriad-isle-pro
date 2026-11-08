@@ -35,34 +35,40 @@ namespace IslandShot
     // 注意不能用 StorageFile（没有 broadFileSystemAccess），要自己读字节塞进内存流。
     internal static class OcrService
     {
-        static OcrEngine engine;
+        static readonly Dictionary<string, OcrEngine> engines = new Dictionary<string, OcrEngine>();
 
         public static bool IsAvailable
         {
-            get { return CreateEngine() != null; }
+            get { return CreateEngine("zh-Hans") != null; }
         }
 
-        static OcrEngine CreateEngine()
+        static OcrEngine CreateEngine(string languageTag)
         {
-            if (engine != null) return engine;
+            OcrEngine cached;
+            if (engines.TryGetValue(languageTag, out cached)) return cached;
+
             try
             {
-                OcrEngine chinese = OcrEngine.TryCreateFromLanguage(new Language("zh-Hans"));
-                if (chinese != null) { engine = chinese; return engine; }
-                foreach (Language lang in OcrEngine.AvailableRecognizerLanguages)
+                OcrEngine engine = OcrEngine.TryCreateFromLanguage(new Language(languageTag));
+                if (engine == null && languageTag != "zh-Hans")
                 {
-                    OcrEngine any = OcrEngine.TryCreateFromLanguage(lang);
-                    if (any != null) { engine = any; return engine; }
+                    engine = OcrEngine.TryCreateFromLanguage(new Language("zh-Hans"));
                 }
+                if (engine != null) engines[languageTag] = engine;
+                return engine;
             }
-            catch (Exception) { }
-            return null;
+            catch (Exception) { return null; }
         }
 
         public static List<OcrLineInfo> Recognize(string imagePath)
         {
+            return Recognize(imagePath, "zh-Hans");
+        }
+
+        public static List<OcrLineInfo> Recognize(string imagePath, string languageTag)
+        {
             var results = new List<OcrLineInfo>();
-            OcrEngine ocr = CreateEngine();
+            OcrEngine ocr = CreateEngine(languageTag);
             if (ocr == null) throw new Exception("系统没有可用的 OCR 语言包");
 
             byte[] bytes = File.ReadAllBytes(imagePath);
