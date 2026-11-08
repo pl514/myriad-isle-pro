@@ -5,13 +5,15 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace IslandShot
 {
-    // 翻译页签：左边输入，右边历史记录。
+    // 翻译页签：左边输入，中间显示译文，右边滑出历史抽屉。
     // 引擎见 TranslateService（MyMemory 免费接口）。
     internal sealed partial class IslandWindow
     {
@@ -22,15 +24,26 @@ namespace IslandShot
         static readonly Color TrMuted = Color.FromRgb(150, 156, 178);
         static readonly Color TrAccentA = Color.FromRgb(124, 108, 242);
         static readonly Color TrAccentB = Color.FromRgb(96, 148, 246);
+        const double TrDrawerWidth = 258;
+        const double TrStripWidth = 20;
 
         Grid translateView;
         TextBox translateInput;
         TextBlock translatePlaceholder;
         StackPanel translateHistoryList;
         ScrollViewer translateHistoryScroll;
+        ScrollViewer translateResultScroll;
+        TextBlock translateResultText;
+        TextBlock translateResultSource;
+        TextBlock translateResultPlaceholder;
         Button translateButton;
+        Button translateCopyButton;
         TextBlock translateStatus;
         Button translateDirButton;
+        Border translateHistoryDrawer;
+        TranslateTransform translateHistoryShift;
+        TextBlock translateDrawerGlyph;
+        bool translateDrawerOpen;
         bool translateBusy;
         bool translateForceZhEn;
 
@@ -39,14 +52,36 @@ namespace IslandShot
             get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "translate.txt"); }
         }
 
-        // 圆角按钮：WPF 默认按钮是直角，用模板套一层圆角边框
+        // 和 AI 面板一致的细圆角滚动条（轨道透明，滑块悬停变亮）
+        static Style BuildTranslateScrollBarStyle()
+        {
+            const string xaml =
+                "<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' " +
+                "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='ScrollBar'>" +
+                "<Setter Property='Width' Value='8'/>" +
+                "<Setter Property='MinWidth' Value='8'/>" +
+                "<Setter Property='Background' Value='Transparent'/>" +
+                "<Setter Property='Template'><Setter.Value>" +
+                "<ControlTemplate TargetType='ScrollBar'>" +
+                "<Grid Background='Transparent'>" +
+                "<Track x:Name='PART_Track' Orientation='Vertical' IsDirectionReversed='True'>" +
+                "<Track.Thumb><Thumb Width='6' HorizontalAlignment='Center'>" +
+                "<Thumb.Template><ControlTemplate TargetType='Thumb'>" +
+                "<Border x:Name='bar' CornerRadius='3' Background='#2EFFFFFF'/>" +
+                "<ControlTemplate.Triggers>" +
+                "<Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bar' Property='Background' Value='#66FFFFFF'/></Trigger>" +
+                "<Trigger Property='IsDragging' Value='True'><Setter TargetName='bar' Property='Background' Value='#A0FFFFFF'/></Trigger>" +
+                "</ControlTemplate.Triggers></ControlTemplate></Thumb.Template>" +
+                "</Thumb></Track.Thumb></Track></Grid></ControlTemplate></Setter.Value></Setter></Style>";
+            return (Style)XamlReader.Parse(xaml);
+        }
+
         static Button TrButton(string text, bool primary, Action click)
         {
             var button = new Button
             {
                 Content = text,
                 FontSize = primary ? 12.5 : 11.5,
-                Padding = new Thickness(0),
                 Cursor = Cursors.Hand,
                 Foreground = primary ? Brushes.White : new SolidColorBrush(TrMuted),
                 Background = primary
@@ -63,7 +98,7 @@ namespace IslandShot
             };
 
             string margin = primary ? "14,7" : "12,5";
-            button.Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(
+            button.Template = (ControlTemplate)XamlReader.Parse(
                 "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='Button'>" +
                 "<Border x:Name='bg' Background='{TemplateBinding Background}' CornerRadius='9' BorderThickness='1' BorderBrush='#2A2338'>" +
                 "<ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center' Margin='" + margin + "'/>" +
@@ -79,11 +114,43 @@ namespace IslandShot
         Grid BuildTranslateView()
         {
             var root = new Grid { Background = new SolidColorBrush(TrPanelBg), Visibility = Visibility.Collapsed };
-            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.46, GridUnitType.Star) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.42, GridUnitType.Star) });
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1) });
-            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.54, GridUnitType.Star) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            // ---------------- 左：输入 ----------------
+            Grid left = BuildTranslateInputColumn();
+            Grid.SetColumn(left, 0);
+            root.Children.Add(left);
+
+            var divider = new Border
+            {
+                Width = 1,
+                Background = new SolidColorBrush(TrLine),
+                Margin = new Thickness(0, 10, 0, 10)
+            };
+            Grid.SetColumn(divider, 1);
+            root.Children.Add(divider);
+
+            var right = new Grid { ClipToBounds = true };
+            right.Children.Add(BuildTranslateResultArea());
+
+            translateHistoryDrawer = BuildTranslateHistoryDrawer();
+            right.Children.Add(translateHistoryDrawer);
+
+            var strip = BuildTranslateDrawerStrip();
+            right.Children.Add(strip);
+
+            Grid.SetColumn(right, 2);
+            root.Children.Add(right);
+
+            translateView = root;
+            LoadTranslateHistory();
+            return root;
+        }
+
+        // ---------------- 左：输入 ----------------
+        Grid BuildTranslateInputColumn()
+        {
             var left = new Grid { Margin = new Thickness(16, 12, 14, 12) };
             left.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             left.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -100,21 +167,10 @@ namespace IslandShot
                 Margin = new Thickness(0, 0, 10, 0)
             });
 
-            translateDirButton = new Button
-            {
-                FontSize = 11,
-                Padding = new Thickness(9, 3, 9, 3),
-                Cursor = Cursors.Hand,
-                Background = new SolidColorBrush(Color.FromRgb(34, 29, 48)),
-                Foreground = new SolidColorBrush(Color.FromRgb(206, 200, 240)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(64, 55, 92)),
-                BorderThickness = new Thickness(1),
-                Content = "自动识别",
-                ToolTip = "点一下切换翻译方向"
-            };
-            translateDirButton.Click += delegate { ToggleTranslateDirection(); };
+            translateDirButton = TrButton("自动识别", false, delegate { ToggleTranslateDirection(); });
+            translateDirButton.FontSize = 10.5;
+            translateDirButton.ToolTip = "点一下切换翻译方向";
             topRow.Children.Add(translateDirButton);
-
             Grid.SetRow(topRow, 0);
             left.Children.Add(topRow);
 
@@ -141,8 +197,10 @@ namespace IslandShot
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 VerticalContentAlignment = VerticalAlignment.Top
             };
+            translateInput.Resources[typeof(ScrollBar)] = BuildTranslateScrollBarStyle();
             translateInput.TextChanged += delegate { UpdateTranslatePlaceholder(); };
             translateInput.PreviewKeyDown += TranslateInputKeyDown;
+            translateInput.PreviewMouseWheel += TranslateWheel;
             inputHost.Children.Add(translateInput);
 
             translatePlaceholder = new TextBlock
@@ -172,7 +230,6 @@ namespace IslandShot
             });
             clearInput.Margin = new Thickness(10, 0, 0, 0);
             buttonRow.Children.Add(clearInput);
-
             Grid.SetRow(buttonRow, 2);
             left.Children.Add(buttonRow);
 
@@ -187,33 +244,123 @@ namespace IslandShot
             Grid.SetRow(translateStatus, 3);
             left.Children.Add(translateStatus);
 
-            Grid.SetColumn(left, 0);
-            root.Children.Add(left);
+            return left;
+        }
 
-            // 分隔线
-            var divider = new Border { Width = 1, Background = new SolidColorBrush(TrLine), Margin = new Thickness(0, 10, 0, 10) };
-            Grid.SetColumn(divider, 1);
-            root.Children.Add(divider);
+        // ---------------- 右：译文 ----------------
+        Grid BuildTranslateResultArea()
+        {
+            var area = new Grid { Margin = new Thickness(16, 12, 20, 12) };
+            area.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            area.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            // ---------------- 右：历史 ----------------
-            var right = new Grid { Margin = new Thickness(14, 12, 16, 12) };
-            right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var header = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            header.Children.Add(new TextBlock
+            {
+                Text = "译文",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(TrMuted),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            translateCopyButton = TrButton("复制", false, delegate { CopyTranslateResult(); });
+            translateCopyButton.HorizontalAlignment = HorizontalAlignment.Right;
+            translateCopyButton.FontSize = 10.5;
+            translateCopyButton.Visibility = Visibility.Collapsed;
+            header.Children.Add(translateCopyButton);
+            Grid.SetRow(header, 0);
+            area.Children.Add(header);
 
-            var historyHeader = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-            historyHeader.Children.Add(new TextBlock
+            var body = new Grid();
+            translateResultSource = new TextBlock
+            {
+                Text = "",
+                FontSize = 11.5,
+                Foreground = new SolidColorBrush(Color.FromRgb(150, 146, 172)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 10),
+                Visibility = Visibility.Collapsed
+            };
+            translateResultText = new TextBlock
+            {
+                Text = "",
+                FontSize = 15,
+                LineHeight = 24,
+                Foreground = new SolidColorBrush(TrText),
+                TextWrapping = TextWrapping.Wrap
+            };
+            var resultStack = new StackPanel();
+            resultStack.Children.Add(translateResultSource);
+            resultStack.Children.Add(translateResultText);
+
+            translateResultScroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = resultStack,
+                Focusable = false
+            };
+            translateResultScroll.Resources[typeof(ScrollBar)] = BuildTranslateScrollBarStyle();
+            translateResultScroll.PreviewMouseWheel += TranslateWheel;
+            body.Children.Add(translateResultScroll);
+
+            translateResultPlaceholder = new TextBlock
+            {
+                Text = "译文会显示在这里\n左边输入内容后点「翻译」",
+                FontSize = 12.5,
+                Foreground = new SolidColorBrush(Color.FromRgb(104, 108, 130)),
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                IsHitTestVisible = false
+            };
+            body.Children.Add(translateResultPlaceholder);
+
+            Grid.SetRow(body, 1);
+            area.Children.Add(body);
+            return area;
+        }
+
+        // ---------------- 右：历史抽屉 ----------------
+        Border BuildTranslateHistoryDrawer()
+        {
+            var drawer = new Border
+            {
+                Width = TrDrawerWidth,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Margin = new Thickness(0, 10, TrStripWidth, 10),
+                CornerRadius = new CornerRadius(12, 0, 0, 12),
+                Background = new SolidColorBrush(Color.FromRgb(24, 20, 33)),
+                BorderBrush = new SolidColorBrush(TrLine),
+                BorderThickness = new Thickness(1),
+                IsHitTestVisible = false,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    BlurRadius = 18,
+                    ShadowDepth = 0,
+                    Opacity = 0.45,
+                    Color = Color.FromRgb(0, 0, 0)
+                }
+            };
+
+            var grid = new Grid { Margin = new Thickness(12, 10, 10, 10) };
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            var head = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            head.Children.Add(new TextBlock
             {
                 Text = "历史记录",
                 FontSize = 11,
                 Foreground = new SolidColorBrush(TrMuted),
                 VerticalAlignment = VerticalAlignment.Center
             });
-            var clearHistory = TrButton("清空记录", false, delegate { ClearTranslateHistory(); });
+            var clearHistory = TrButton("清空", false, delegate { ClearTranslateHistory(); });
             clearHistory.HorizontalAlignment = HorizontalAlignment.Right;
-            clearHistory.FontSize = 10.5;
-            historyHeader.Children.Add(clearHistory);
-            Grid.SetRow(historyHeader, 0);
-            right.Children.Add(historyHeader);
+            clearHistory.FontSize = 10;
+            head.Children.Add(clearHistory);
+            Grid.SetRow(head, 0);
+            grid.Children.Add(head);
 
             translateHistoryList = new StackPanel();
             translateHistoryScroll = new ScrollViewer
@@ -223,15 +370,72 @@ namespace IslandShot
                 Content = translateHistoryList,
                 Focusable = false
             };
+            translateHistoryScroll.Resources[typeof(ScrollBar)] = BuildTranslateScrollBarStyle();
+            translateHistoryScroll.PreviewMouseWheel += TranslateWheel;
             Grid.SetRow(translateHistoryScroll, 1);
-            right.Children.Add(translateHistoryScroll);
+            grid.Children.Add(translateHistoryScroll);
 
-            Grid.SetColumn(right, 2);
-            root.Children.Add(right);
+            drawer.Child = grid;
 
-            translateView = root;
-            LoadTranslateHistory();
-            return root;
+            translateHistoryShift = new TranslateTransform(TrDrawerWidth + TrStripWidth, 0);
+            drawer.RenderTransform = translateHistoryShift;
+            return drawer;
+        }
+
+        Border BuildTranslateDrawerStrip()
+        {
+            var strip = new Border
+            {
+                Width = TrStripWidth,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Margin = new Thickness(0, 14, 0, 14),
+                CornerRadius = new CornerRadius(8, 0, 0, 8),
+                Background = new SolidColorBrush(Color.FromRgb(30, 26, 42)),
+                BorderBrush = new SolidColorBrush(TrLine),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand,
+                ToolTip = "展开/收起翻译历史"
+            };
+            Panel.SetZIndex(strip, 5);
+
+            translateDrawerGlyph = new TextBlock
+            {
+                Text = "‹",
+                FontSize = 15,
+                Foreground = new SolidColorBrush(Color.FromRgb(168, 160, 200)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            strip.Child = translateDrawerGlyph;
+            strip.MouseLeftButtonUp += delegate { ToggleTranslateDrawer(); };
+            return strip;
+        }
+
+        void ToggleTranslateDrawer()
+        {
+            translateDrawerOpen = !translateDrawerOpen;
+            if (translateHistoryDrawer != null)
+            {
+                translateHistoryDrawer.IsHitTestVisible = translateDrawerOpen;
+                double to = translateDrawerOpen ? 0 : TrDrawerWidth + TrStripWidth;
+                if (translateHistoryShift != null)
+                {
+                    Motion.AnimateDouble(translateHistoryShift, TranslateTransform.XProperty,
+                        translateHistoryShift.X, to, 220, Motion.Drop, 0, null);
+                }
+            }
+            if (translateDrawerGlyph != null) translateDrawerGlyph.Text = translateDrawerOpen ? "›" : "‹";
+            if (translateDrawerOpen) UpdateTranslatePlaceholder();
+        }
+
+        // ---------------- 滚轮 / 输入 ----------------
+        void TranslateWheel(object sender, MouseWheelEventArgs e)
+        {
+            var scroll = sender as ScrollViewer;
+            if (scroll == null) return;
+            scroll.ScrollToVerticalOffset(scroll.VerticalOffset - e.Delta / 2.0);
+            e.Handled = true;
         }
 
         void TranslateInputKeyDown(object sender, KeyEventArgs e)
@@ -256,6 +460,35 @@ namespace IslandShot
         {
             translateForceZhEn = !translateForceZhEn;
             translateDirButton.Content = translateForceZhEn ? "中 → 英" : "自动识别";
+        }
+
+        void SetTranslateResult(string source, string target)
+        {
+            if (translateResultSource != null)
+            {
+                translateResultSource.Text = source;
+                translateResultSource.Visibility = string.IsNullOrEmpty(source) ? Visibility.Collapsed : Visibility.Visible;
+            }
+            if (translateResultText != null) translateResultText.Text = target ?? "";
+            if (translateResultPlaceholder != null)
+            {
+                translateResultPlaceholder.Visibility = string.IsNullOrEmpty(target) ? Visibility.Visible : Visibility.Collapsed;
+            }
+            if (translateCopyButton != null)
+            {
+                translateCopyButton.Visibility = string.IsNullOrEmpty(target) ? Visibility.Collapsed : Visibility.Visible;
+            }
+            if (translateResultScroll != null) translateResultScroll.ScrollToTop();
+        }
+
+        void CopyTranslateResult()
+        {
+            try
+            {
+                Clipboard.SetText(translateResultText.Text ?? "");
+                translateStatus.Text = "译文已复制";
+            }
+            catch (Exception) { }
         }
 
         async Task DoTranslate()
@@ -285,8 +518,9 @@ namespace IslandShot
                 result = (result ?? "").Trim();
                 if (result.Length == 0) throw new Exception("翻译结果为空");
 
+                SetTranslateResult(text, result);
                 translateStatus.Text = "已翻译为" + TranslateService.TargetLabel(pair);
-                AddTranslateCard(text, result, pair, true);
+                AddTranslateCard(text, result, pair);
                 SaveTranslateHistory();
             }
             catch (Exception ex)
@@ -301,7 +535,8 @@ namespace IslandShot
             }
         }
 
-        void AddTranslateCard(string source, string target, string pair, bool save)
+        // ---------------- 历史 ----------------
+        void AddTranslateCard(string source, string target, string pair)
         {
             if (translateHistoryList == null) return;
 
@@ -311,54 +546,43 @@ namespace IslandShot
                 BorderBrush = new SolidColorBrush(TrLine),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(10),
-                Padding = new Thickness(12, 10, 12, 8),
-                Margin = new Thickness(0, 0, 0, 8)
+                Padding = new Thickness(10, 8, 10, 6),
+                Margin = new Thickness(0, 0, 0, 7),
+                Cursor = Cursors.Hand,
+                ToolTip = "点一下把它显示到右边"
             };
 
             var stack = new StackPanel();
-
             stack.Children.Add(new TextBlock
             {
                 Text = source,
-                FontSize = 11.5,
+                FontSize = 11,
                 Foreground = new SolidColorBrush(Color.FromRgb(150, 146, 172)),
                 TextWrapping = TextWrapping.Wrap,
-                MaxHeight = 54,
+                MaxHeight = 40,
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
-
             stack.Children.Add(new TextBlock
             {
                 Text = target,
-                FontSize = 13.5,
+                FontSize = 12.5,
                 Foreground = new SolidColorBrush(TrText),
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 6, 0, 6),
-                LineHeight = 20
+                Margin = new Thickness(0, 5, 0, 4),
+                MaxHeight = 52,
+                TextTrimming = TextTrimming.CharacterEllipsis
             });
-
-            var footer = new Grid();
-            footer.Children.Add(new TextBlock
+            stack.Children.Add(new TextBlock
             {
-                Text = DateTime.Now.ToString("HH:mm") + " · 译成" + TranslateService.TargetLabel(pair),
-                FontSize = 10,
-                Foreground = new SolidColorBrush(Color.FromRgb(110, 114, 138)),
-                VerticalAlignment = VerticalAlignment.Center
+                Text = DateTime.Now.ToString("HH:mm") + " · " + TranslateService.TargetLabel(pair),
+                FontSize = 9.5,
+                Foreground = new SolidColorBrush(Color.FromRgb(108, 112, 138))
             });
-            var copy = TrButton("复制", false, delegate
-            {
-                try { Clipboard.SetText(target); translateStatus.Text = "译文已复制"; }
-                catch (Exception) { }
-            });
-            copy.HorizontalAlignment = HorizontalAlignment.Right;
-            copy.FontSize = 10.5;
-            footer.Children.Add(copy);
-            stack.Children.Add(footer);
 
             card.Child = stack;
+            card.MouseLeftButtonUp += delegate { SetTranslateResult(source, target); };
             translateHistoryList.Children.Insert(0, card);
 
-            // 只保留最近 30 条，避免无限膨胀
             while (translateHistoryList.Children.Count > 30)
             {
                 translateHistoryList.Children.RemoveAt(translateHistoryList.Children.Count - 1);
@@ -422,7 +646,7 @@ namespace IslandShot
                         target = Encoding.UTF8.GetString(Convert.FromBase64String(parts[2]));
                     }
                     catch (Exception) { continue; }
-                    AddTranslateCard(source, target, "zh-CN|en", false);
+                    AddTranslateCard(source, target, "zh-CN|en");
                 }
             }
             catch (Exception) { }
