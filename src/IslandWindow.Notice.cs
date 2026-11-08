@@ -130,17 +130,19 @@ namespace IslandShot
                 Child = row,
                 ToolTip = "左键：微信　右键：QQ"
             };
+            // 两家都有未读：左键微信、右键 QQ；只有一家未读：左右键都打开那一家
             panelNoticeChip.MouseLeftButtonUp += delegate
             {
-                // 左键固定跳微信，右键固定跳 QQ，两者互不冲突
-                OpenMessengerApp("wechat");
-                unreadWechat = false;
+                if (unreadWechat) { OpenMessengerApp("wechat"); unreadWechat = false; }
+                else if (unreadQq) { OpenMessengerApp("qq"); unreadQq = false; }
+                SyncPendingNotice();
                 RefreshPanelNoticeChip();
             };
             panelNoticeChip.MouseRightButtonUp += delegate
             {
-                OpenMessengerApp("qq");
-                unreadQq = false;
+                if (unreadQq) { OpenMessengerApp("qq"); unreadQq = false; }
+                else if (unreadWechat) { OpenMessengerApp("wechat"); unreadWechat = false; }
+                SyncPendingNotice();
                 RefreshPanelNoticeChip();
             };
             return panelNoticeChip;
@@ -155,6 +157,13 @@ namespace IslandShot
         }
 
         // 按未读集合刷新：单个显示名字，两个都显示"微信/QQ"
+        void SyncPendingNotice()
+        {
+            if (unreadQq) pendingNoticeApp = "qq";
+            else if (unreadWechat) pendingNoticeApp = "wechat";
+            else pendingNoticeApp = null;
+        }
+
         void RefreshPanelNoticeChip()
         {
             if (panelNoticeChip == null) return;
