@@ -6,7 +6,7 @@ using System.Web.Script.Serialization;
 
 namespace IslandShot
 {
-    // 翻译服务：当前用 MyMemory 免费接口（无需 key，实测国内可直连）。
+    // 翻译服务：优先用应用里配置的 AI 模型；没有 key 时退回 MyMemory 免费接口。
     // 以后要换供应商，只需要改 TranslateAsync 里的实现。
     internal static class TranslateService
     {
@@ -64,11 +64,27 @@ namespace IslandShot
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
 
+            // 先走应用里已配置的 AI 模型（免费额度高、质量好、不限流）
+            if (AiTranslateService.IsAvailable())
+            {
+                string ai = await Task.Run(delegate { return AiTranslateService.Translate(text, pair); }).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(ai)) return ai.Trim();
+            }
+
             string url = "https://api.mymemory.translated.net/get?q=" +
                          Uri.EscapeDataString(text) +
-                         "&langpair=" + Uri.EscapeDataString(pair.Replace("|", "|"));
+                         "&langpair=" + Uri.EscapeDataString(pair.Replace("|", "|")) +
+                         "&de=myriadisle%40outlook.com";
 
-            string body = await Client.GetStringAsync(url).ConfigureAwait(false);
+            string body = "";
+            for (int quotaRetry = 0; quotaRetry < 2; quotaRetry++)
+            {
+                body = await Client.GetStringAsync(url).ConfigureAwait(false);
+                // 额度用完时接口会把提示语当译文返回，等一下再试一次
+                if (body.IndexOf("MYMEMORY WARNING", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    body.IndexOf("QUOTA", StringComparison.OrdinalIgnoreCase) < 0) break;
+                if (quotaRetry == 0) await Task.Delay(2500).ConfigureAwait(false);
+            }
 
             var serializer = new JavaScriptSerializer { MaxJsonLength = 4 * 1024 * 1024 };
             var root = serializer.Deserialize<System.Collections.Generic.Dictionary<string, object>>(body);
