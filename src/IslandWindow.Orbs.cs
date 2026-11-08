@@ -111,9 +111,23 @@ namespace IslandShot
             }
             orbSlot.Children.Add(orbRow);
 
-            var hub = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            // 触发球 + 槽位叠在同一格：消息胶囊贴在球右边，展开功能球时被球盖住
+            var hub = new Grid { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
+            hub.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            hub.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            Grid.SetColumn(orbTrigger, 0);
             hub.Children.Add(orbTrigger);
-            hub.Children.Add(orbSlot);
+
+            var noticeChip = BuildPanelNoticeChip();
+            Grid.SetColumn(noticeChip, 1);
+            noticeChip.HorizontalAlignment = HorizontalAlignment.Left;
+            noticeChip.Margin = new Thickness(4, 0, 0, 0);
+            hub.Children.Add(noticeChip);
+
+            Grid.SetColumn(orbSlot, 1);
+            orbSlot.Margin = new Thickness(0);
+            hub.Children.Add(orbSlot);   // 加在后面 → 展开时盖住胶囊
             return hub;
         }
 

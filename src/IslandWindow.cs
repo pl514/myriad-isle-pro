@@ -895,7 +895,6 @@ namespace IslandShot
             };
             headerLeft.Children.Add(tabHost);
             headerLeft.Children.Add(BuildOrbHub());
-            headerLeft.Children.Add(BuildPanelNoticeChip());
             header.Children.Add(headerLeft);
             header.Children.Add(actions);
 
