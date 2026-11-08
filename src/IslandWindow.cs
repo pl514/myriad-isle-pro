@@ -135,6 +135,16 @@ namespace IslandShot
             Content = root;
 
             AttachCapsuleGestures();
+            // 提示点击：窗口级隧道拦截，保证不会先被胶囊手势拿去展开面板
+            PreviewMouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (!capsuleNoticeActive) return;
+                if (!IsCapsuleNoticeSource(e.OriginalSource)) return;
+                string app = capsuleNoticeApp;
+                e.Handled = true;
+                OpenMessengerApp(app);
+                ClearUnreadNotice();
+            };
 
             PreviewMouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
             {

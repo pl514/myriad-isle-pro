@@ -269,9 +269,24 @@ namespace IslandShot
             return false;
         }
 
+        // 该客户端是否在前台：我们自己切过去时的提示音不算新消息
+        bool IsMessengerForeground(string appId)
+        {
+            try
+            {
+                IntPtr foreground = GetForegroundWindow();
+                if (foreground == IntPtr.Zero) return false;
+                int pid;
+                GetWindowThreadProcessId(foreground, out pid);
+                return MessengerIdByPid(pid) == appId;
+            }
+            catch (Exception) { return false; }
+        }
+
         void ShowCapsuleNotice(string appId)
         {
             if (capsuleNotice == null) return;
+            if (IsMessengerForeground(appId == "qq" ? "qq" : "wechat")) return;
             if (expanded)
             {
                 // 面板展开时：提示出现在三点球右边的消息胶囊里
@@ -338,6 +353,7 @@ namespace IslandShot
             pendingNoticeApp = null;
             Motion.Delay(420, delegate { if (!expanded) ShowCapsuleNotice(app); });
         }
+
 
         void HideCapsuleNotice()
         {
