@@ -128,13 +128,20 @@ namespace IslandShot
                 Cursor = Cursors.Hand,
                 Visibility = Visibility.Collapsed,
                 Child = row,
-                ToolTip = "点击跳转到客户端"
+                ToolTip = "左键：微信　右键：QQ"
             };
             panelNoticeChip.MouseLeftButtonUp += delegate
             {
-                string app = panelNoticeApp;
-                HidePanelNoticeChip();
-                if (!string.IsNullOrEmpty(app)) OpenMessengerApp(app);
+                // 左键固定跳微信，右键固定跳 QQ，两者互不冲突
+                OpenMessengerApp("wechat");
+                unreadWechat = false;
+                RefreshPanelNoticeChip();
+            };
+            panelNoticeChip.MouseRightButtonUp += delegate
+            {
+                OpenMessengerApp("qq");
+                unreadQq = false;
+                RefreshPanelNoticeChip();
             };
             return panelNoticeChip;
         }
