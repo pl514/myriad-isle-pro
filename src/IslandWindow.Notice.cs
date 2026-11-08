@@ -40,6 +40,8 @@ namespace IslandShot
         string capsuleNoticeApp = "wechat";
         string pendingNoticeApp = "";
         bool unreadWechat;
+        DateTime suppressWechatUntil;
+        DateTime suppressQqUntil;
         bool unreadQq;
         readonly List<DependencyObject> capsuleNoticeButtons = new List<DependencyObject>();
 
@@ -283,9 +285,22 @@ namespace IslandShot
             catch (Exception) { return false; }
         }
 
+        // 跳转后的几秒内忽略该客户端的音效（切窗口/登录音会被误判成新消息）
+        void SuppressApp(string appId, int milliseconds)
+        {
+            DateTime until = DateTime.UtcNow.AddMilliseconds(milliseconds);
+            if (appId == "qq") suppressQqUntil = until; else suppressWechatUntil = until;
+        }
+
+        bool IsSuppressed(string appId)
+        {
+            return appId == "qq" ? DateTime.UtcNow < suppressQqUntil : DateTime.UtcNow < suppressWechatUntil;
+        }
+
         void ShowCapsuleNotice(string appId)
         {
             if (capsuleNotice == null) return;
+            if (IsSuppressed(appId == "qq" ? "qq" : "wechat")) return;
             if (IsMessengerForeground(appId == "qq" ? "qq" : "wechat")) return;
             if (expanded)
             {
