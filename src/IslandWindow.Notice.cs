@@ -329,14 +329,6 @@ namespace IslandShot
                     string title = text.ToString();
                     if (title.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) < 0) return true;
 
-                    int pid;
-                    GetWindowThreadProcessId(hwnd, out pid);
-                    try
-                    {
-                        var process = System.Diagnostics.Process.GetProcessById(pid);
-                        if (!process.ProcessName.StartsWith("DeepSeek Harness", StringComparison.OrdinalIgnoreCase)) return true;
-                    }
-                    catch (Exception) { return true; }
 
                     found = hwnd;
                     return false;
@@ -349,6 +341,7 @@ namespace IslandShot
             {
                 if (IsIconic(found)) ShowWindow(found, 9);
                 SetForegroundWindow(found);
+                SwitchToThisWindow(found, true);
                 MessengerLog("dsh window activated");
                 return true;
             }
