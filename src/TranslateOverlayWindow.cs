@@ -22,8 +22,6 @@ namespace IslandShot
         readonly Point originDip;
         readonly Image picture;
         readonly Grid root;
-        readonly Canvas ringLayer;
-        readonly System.Windows.Shapes.Ellipse glowRing;
         readonly ScaleTransform ringScale;
         readonly Border statusPill;
         readonly TextBlock statusLabel;
@@ -33,13 +31,13 @@ namespace IslandShot
 
         string translatedPath;
         Canvas rippleLayer;
-        System.Windows.Shapes.Ellipse rippleRing;
         System.Windows.Shapes.Ellipse rippleBloom;
         ScaleTransform rippleScale;
+        System.Windows.Shapes.Rectangle fog;
+        System.Windows.Media.Effects.BlurEffect pictureBlur;
         EllipseGeometry revealClip;
         double imageWidth = 1;
         double imageHeight = 1;
-        DispatcherTimer ringTimer;
 
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int value);
@@ -82,9 +80,6 @@ namespace IslandShot
             picture = new Image { Stretch = Stretch.Fill, Source = LoadImage(sourcePath), Opacity = 0 };
             imageWidth = picture.Source != null ? ((BitmapSource)picture.Source).PixelWidth : 1;
             imageHeight = picture.Source != null ? ((BitmapSource)picture.Source).PixelHeight : 1;
-            root.Children.Add(picture);
-
-            // 彩虹扩散层：叠在画面之上，只是光效
             rippleLayer = new Canvas { IsHitTestVisible = false };
             rippleScale = new ScaleTransform(0.1, 0.1);
             rippleBloom = new System.Windows.Shapes.Ellipse
@@ -99,75 +94,10 @@ namespace IslandShot
                         new GradientStop(Color.FromArgb(0, 255, 255, 255), 1)
                     })
             };
-            rippleRing = new System.Windows.Shapes.Ellipse
-            {
-                IsHitTestVisible = false,
-                StrokeThickness = 22,
-                Stroke = new LinearGradientBrush(
-                    new GradientStopCollection
-                    {
-                        new GradientStop(Color.FromArgb(235, 255, 99, 132), 0),
-                        new GradientStop(Color.FromArgb(235, 255, 176, 92), 0.16),
-                        new GradientStop(Color.FromArgb(235, 255, 246, 120), 0.32),
-                        new GradientStop(Color.FromArgb(235, 122, 245, 168), 0.48),
-                        new GradientStop(Color.FromArgb(235, 96, 208, 255), 0.64),
-                        new GradientStop(Color.FromArgb(235, 132, 148, 255), 0.80),
-                        new GradientStop(Color.FromArgb(235, 214, 132, 255), 1)
-                    },
-                    new Point(0, 0), new Point(1, 1))
-            };
-            rippleRing.StrokeThickness = 34;
-            rippleRing.Effect = new System.Windows.Media.Effects.DropShadowEffect
-            {
-                Color = Color.FromRgb(160, 190, 255),
-                BlurRadius = 60,
-                ShadowDepth = 0,
-                Opacity = 0.95
-            };
-            rippleBloom.Effect = new System.Windows.Media.Effects.DropShadowEffect
-            {
-                Color = Color.FromRgb(200, 160, 255),
-                BlurRadius = 90,
-                ShadowDepth = 0,
-                Opacity = 0.9
-            };
-            rippleRing.RenderTransform = rippleScale;
-            rippleRing.RenderTransformOrigin = new Point(0.5, 0.5);
             rippleBloom.RenderTransform = rippleScale;
             rippleBloom.RenderTransformOrigin = new Point(0.5, 0.5);
             rippleLayer.Children.Add(rippleBloom);
-            rippleLayer.Children.Add(rippleRing);
             root.Children.Add(rippleLayer);
-
-            // 扫描光斑：一个发光圆环，跟着"正在翻译的那一行"移动
-            ringLayer = new Canvas { IsHitTestVisible = false };
-            ringScale = new ScaleTransform(1, 1);
-            glowRing = new System.Windows.Shapes.Ellipse
-            {
-                Width = 150,
-                Height = 150,
-                Opacity = 0,
-                IsHitTestVisible = false,
-                StrokeThickness = 2,
-                Stroke = new LinearGradientBrush(
-                    new GradientStopCollection
-                    {
-                        new GradientStop(Color.FromArgb(230, 150, 200, 255), 0),
-                        new GradientStop(Color.FromArgb(120, 220, 180, 255), 1)
-                    },
-                    new Point(0, 0), new Point(1, 1)),
-                Fill = new RadialGradientBrush(
-                    new GradientStopCollection
-                    {
-                        new GradientStop(Color.FromArgb(0, 255, 255, 255), 0),
-                        new GradientStop(Color.FromArgb(26, 190, 220, 255), 0.62),
-                        new GradientStop(Color.FromArgb(0, 255, 255, 255), 1)
-                    })
-            };
-            glowRing.RenderTransform = ringScale;
-            glowRing.RenderTransformOrigin = new Point(0.5, 0.5);
-            ringLayer.Children.Add(glowRing);
-            root.Children.Add(ringLayer);
 
             // 顶部条
             topStatus = new TextBlock
@@ -291,7 +221,7 @@ namespace IslandShot
             rippleLayer.Width = width;
             rippleLayer.Height = height;
 
-            foreach (var ring in new[] { rippleBloom, rippleRing })
+            foreach (var ring in new[] { rippleBloom })
             {
                 ring.Width = diameter;
                 ring.Height = diameter;
@@ -301,8 +231,8 @@ namespace IslandShot
             }
 
             // 光圈由小放大
-            Motion.AnimateDouble(rippleScale, ScaleTransform.ScaleXProperty, 0.06, 2.60, 1180, Motion.Enter, 0, null);
-            Motion.AnimateDouble(rippleScale, ScaleTransform.ScaleYProperty, 0.06, 2.60, 1180, Motion.Enter, 0, null);
+            Motion.AnimateDouble(rippleScale, ScaleTransform.ScaleXProperty, 0.06, 3.30, 1200, Motion.Enter, 0, null);
+            Motion.AnimateDouble(rippleScale, ScaleTransform.ScaleYProperty, 0.06, 3.30, 1200, Motion.Enter, 0, null);
 
             // 220ms 后画面淡入（透过光晕出现）
             var fadeIn = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
@@ -318,8 +248,6 @@ namespace IslandShot
             fadeOut.Tick += delegate
             {
                 fadeOut.Stop();
-                Motion.AnimateDouble(rippleRing, UIElement.OpacityProperty, 1, 0, 780, Motion.Exit, 0, null);
-                Motion.AnimateDouble(rippleBloom, UIElement.OpacityProperty, 1, 0, 780, Motion.Exit, 0, null);
                 Motion.AnimateDouble(topBar, UIElement.OpacityProperty, 0, 1, 260, Motion.Enter, 0, null);
             };
             fadeOut.Start();
@@ -331,7 +259,6 @@ namespace IslandShot
                 finish.Stop();
                 if (rippleLayer != null) rippleLayer.Visibility = Visibility.Collapsed;
                 SetClickThrough(false);
-                StartRingPulse();
                 BeginTranslate();
             };
             finish.Start();
@@ -350,38 +277,12 @@ namespace IslandShot
             }
             catch (Exception) { }
         }
-        // 光斑缓慢呼吸
-        void StartRingPulse()
-        {
-            ringTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(520) };
-            ringTimer.Tick += delegate
-            {
-                Motion.AnimateDouble(ringScale, ScaleTransform.ScaleXProperty, 0.86, 1.06, 480, Motion.Enter, 0, null);
-                Motion.AnimateDouble(ringScale, ScaleTransform.ScaleYProperty, 0.86, 1.06, 480, Motion.Enter, 0, null);
-            };
-            ringTimer.Start();
-        }
-
         void SetStatus(string text)
         {
             Dispatcher.BeginInvoke(new Action(delegate
             {
                 if (statusLabel != null) statusLabel.Text = text;
             }), DispatcherPriority.Background);
-        }
-
-        void MoveRing(ImageTranslationProgress progress)
-        {
-            if (progress == null || progress.Total <= 0) return;
-            double scaleX = ActualWidth > 0 ? ActualWidth / Math.Max(1, imageWidth) : 1;
-            double scaleY = ActualHeight > 0 ? ActualHeight / Math.Max(1, imageHeight) : 1;
-
-            double centerX = (progress.X + progress.Width / 2) * scaleX;
-            double centerY = (progress.Y + progress.Height / 2) * scaleY;
-
-            Canvas.SetLeft(glowRing, centerX - glowRing.Width / 2);
-            Canvas.SetTop(glowRing, centerY - glowRing.Height / 2);
-            if (glowRing.Opacity < 0.5) Motion.AnimateDouble(glowRing, UIElement.OpacityProperty, glowRing.Opacity, 1, 200, Motion.Enter, 0, null);
         }
 
         void BeginTranslate()
@@ -405,8 +306,6 @@ namespace IslandShot
                     string message = ex.Message;
                     Dispatcher.BeginInvoke(new Action(delegate
                     {
-                        if (ringTimer != null) ringTimer.Stop();
-                        glowRing.Opacity = 0;
                         topStatus.Text = "翻译失败：" + message;
                         hintText.Text = "按 Esc 关闭";
                     }), DispatcherPriority.Background);
@@ -424,7 +323,6 @@ namespace IslandShot
                 {
                     picture.Source = LoadImage(progress.ImagePath);
                 }
-                MoveRing(progress);
                 statusLabel.Text = "屏幕翻译 · 正在翻译 " + progress.Done + " / " + progress.Total + " 行";
                 topStatus.Text = "正在翻译 " + progress.Done + " / " + progress.Total + " 行…";
             }
@@ -434,13 +332,12 @@ namespace IslandShot
         void ShowResult(ImageTranslationResult result)
         {
             translatedPath = result.OutputPath;
+            Motion.AnimateDouble(rippleBloom, UIElement.OpacityProperty, rippleBloom.Opacity, 0, 420, Motion.Exit, 0, null);
             if (!string.IsNullOrEmpty(translatedPath) && File.Exists(translatedPath))
             {
                 picture.Source = LoadImage(translatedPath);
             }
 
-            if (ringTimer != null) ringTimer.Stop();
-            Motion.AnimateDouble(glowRing, UIElement.OpacityProperty, glowRing.Opacity, 0, 320, Motion.Exit, 0, null);
 
             topStatus.Text = "已翻译 " + result.TranslatedCount + " 行";
             hintText.Text = "Esc 或右上角 ✕ 关闭 · 右键可保存图片";
