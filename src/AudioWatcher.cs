@@ -135,10 +135,23 @@ namespace IslandShot
         static string MessengerForProcessName(string name)
         {
             if (string.IsNullOrEmpty(name)) return null;
-            if (name.IndexOf("Weixin", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                name.IndexOf("WeChat", StringComparison.OrdinalIgnoreCase) >= 0) return "wechat";
-            if (name.IndexOf("QQ", StringComparison.OrdinalIgnoreCase) >= 0) return "qq";
+            // 只认主进程，避免把 WeChatAppEx（小程序宿主）/ 名字里带 QQ 的其他进程算成消息
+            if (string.Equals(name, "Weixin", StringComparison.OrdinalIgnoreCase)) return "wechat";
+            if (string.Equals(name, "WeChat", StringComparison.OrdinalIgnoreCase)) return "wechat";
+            if (string.Equals(name, "QQ", StringComparison.OrdinalIgnoreCase)) return "qq";
             return null;
+        }
+
+        static void DebugLog(string message)
+        {
+            try
+            {
+                string folder = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+                if (!System.IO.Directory.Exists(folder)) System.IO.Directory.CreateDirectory(folder);
+                System.IO.File.AppendAllText(System.IO.Path.Combine(folder, "audio.log"),
+                    DateTime.Now.ToString("HH:mm:ss.fff") + " " + message + Environment.NewLine);
+            }
+            catch (Exception) { }
         }
 
         void Loop()
@@ -193,6 +206,7 @@ namespace IslandShot
                                     (DateTime.Now - previous).TotalMilliseconds < DebounceMs) continue;
                                 lastFired[app] = DateTime.Now;
 
+                                DebugLog("audio from " + processName + " pid=" + pid + " peak=" + peak.ToString("0.000"));
                                 Action<string> handler = onMessageSound;
                                 if (handler != null) handler(app);
                             }
