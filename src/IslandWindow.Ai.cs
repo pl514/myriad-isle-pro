@@ -1517,6 +1517,8 @@ namespace IslandShot
                 return;
             }
 
+            // 休眠时卸掉的气泡：真要打开 AI 面板了才按聊天数据重绘。
+            RestoreAiChatVisuals();
             bool fromImagePanel = expanded;
             aiVisible = true;
             aiLastSurface = true;
@@ -1542,6 +1544,17 @@ namespace IslandShot
             }
 
             FocusAiInput();
+
+            // 每次打开都落到最新一条，否则会停在上次的位置（顶部），要手动点「↓ 最新」。
+            // 面板刚显示时布局还没完成，ScrollToEnd 会落空，所以动画结束后再补一次。
+            ScrollAiToEnd();
+            var settleScroll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(280) };
+            settleScroll.Tick += delegate
+            {
+                settleScroll.Stop();
+                ScrollAiToEnd();
+            };
+            settleScroll.Start();
         }
 
         // 返回图片面板：窗口保持展开态，只是把内容从 AI 面板换回图片面板。
