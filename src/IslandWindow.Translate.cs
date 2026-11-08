@@ -114,9 +114,11 @@ namespace IslandShot
         Grid BuildTranslateView()
         {
             var root = new Grid { Background = new SolidColorBrush(TrPanelBg), Visibility = Visibility.Collapsed };
-            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.42, GridUnitType.Star) });
+            // 在视图根上统一挂滚动条样式：输入框内部的 ScrollViewer 也能继承到
+            root.Resources[typeof(ScrollBar)] = BuildTranslateScrollBarStyle();
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1) });
-            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.85, GridUnitType.Star) });
 
             Grid left = BuildTranslateInputColumn();
             Grid.SetColumn(left, 0);
@@ -146,6 +148,21 @@ namespace IslandShot
             translateView = root;
             LoadTranslateHistory();
             return root;
+        }
+
+        static T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            if (parent == null) return null;
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(parent, i);
+                var typed = child as T;
+                if (typed != null) return typed;
+                T deeper = FindVisualChild<T>(child);
+                if (deeper != null) return deeper;
+            }
+            return null;
         }
 
         // ---------------- 左：输入 ----------------
@@ -198,6 +215,12 @@ namespace IslandShot
                 VerticalContentAlignment = VerticalAlignment.Top
             };
             translateInput.Resources[typeof(ScrollBar)] = BuildTranslateScrollBarStyle();
+            translateInput.Loaded += delegate
+            {
+                // TextBox 的内部滚动条是模板生成出来的，加载后再补一次样式
+                ScrollViewer inner = FindVisualChild<ScrollViewer>(translateInput);
+                if (inner != null) inner.Resources[typeof(ScrollBar)] = BuildTranslateScrollBarStyle();
+            };
             translateInput.TextChanged += delegate { UpdateTranslatePlaceholder(); };
             translateInput.PreviewKeyDown += TranslateInputKeyDown;
             translateInput.PreviewMouseWheel += TranslateWheel;

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -154,6 +155,7 @@ namespace IslandShot
             {
                 if (!expanded) return;
                 if (aiVisible || musicVisible) return;   // 聊天区 / 歌单自己滚，别被图片面板的平滑滚动接管
+                if (showingTranslate) return;            // 翻译页的输入框 / 译文 / 历史各自滚动
                 if (showingText && textScroller != null)
                 {
                     GlideText(-e.Delta);
@@ -938,6 +940,7 @@ namespace IslandShot
                 Padding = new Thickness(16, 0, 16, 0),
                 Background = Brushes.Transparent
             };
+            scroller.Resources[typeof(ScrollBar)] = BuildTranslateScrollBarStyle();
             scroller.PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs e)
             {
                 GlideImages(-e.Delta);
@@ -964,6 +967,8 @@ namespace IslandShot
                 Background = Brushes.Transparent,
                 Visibility = Visibility.Collapsed
             };
+            textScroller.Resources[typeof(ScrollBar)] = BuildTranslateScrollBarStyle();
+            textScroller.PreviewMouseWheel += TranslateWheel;
             textEmpty = new TextBlock
             {
                 Text = "暂无文字\n复制文字后会自动同步到这里",
