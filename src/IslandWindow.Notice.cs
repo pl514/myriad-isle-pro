@@ -314,6 +314,46 @@ namespace IslandShot
             return appId == "qq" ? DateTime.UtcNow < suppressQqUntil : DateTime.UtcNow < suppressWechatUntil;
         }
 
+
+        // 把 DSH（Electron 窗口）切到前台：只激活，不改大小
+        bool OpenDshWindow()
+        {
+            IntPtr found = IntPtr.Zero;
+            try
+            {
+                EnumWindows(delegate(IntPtr hwnd, IntPtr param)
+                {
+                    if (!IsWindowVisible(hwnd)) return true;
+                    var text = new StringBuilder(256);
+                    if (GetWindowText(hwnd, text, 256) <= 0) return true;
+                    string title = text.ToString();
+                    if (title.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) < 0) return true;
+
+                    int pid;
+                    GetWindowThreadProcessId(hwnd, out pid);
+                    try
+                    {
+                        var process = System.Diagnostics.Process.GetProcessById(pid);
+                        if (!process.ProcessName.StartsWith("DeepSeek Harness", StringComparison.OrdinalIgnoreCase)) return true;
+                    }
+                    catch (Exception) { return true; }
+
+                    found = hwnd;
+                    return false;
+                }, IntPtr.Zero);
+            }
+            catch (Exception) { return false; }
+
+            if (found == IntPtr.Zero) return false;
+            try
+            {
+                if (IsIconic(found)) ShowWindow(found, 9);
+                SetForegroundWindow(found);
+                MessengerLog("dsh window activated");
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
         void ShowCapsuleNotice(string appId)
         {
             if (capsuleNotice == null) return;
