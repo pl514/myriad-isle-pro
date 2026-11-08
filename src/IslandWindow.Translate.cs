@@ -9,6 +9,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace IslandShot
@@ -44,6 +45,10 @@ namespace IslandShot
         TranslateTransform translateHistoryShift;
         TextBlock translateDrawerGlyph;
         bool translateDrawerOpen;
+        Grid translateImageLayer;
+        Image translatePreview;
+        TextBlock translateImageStatus;
+        string translateImageOutput;
         bool translateBusy;
         bool translateForceZhEn;
 
@@ -116,9 +121,9 @@ namespace IslandShot
             var root = new Grid { Background = new SolidColorBrush(TrPanelBg), Visibility = Visibility.Collapsed };
             // 在视图根上统一挂滚动条样式：输入框内部的 ScrollViewer 也能继承到
             root.Resources[typeof(ScrollBar)] = BuildTranslateScrollBarStyle();
-            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1) });
-            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.85, GridUnitType.Star) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             Grid left = BuildTranslateInputColumn();
             Grid.SetColumn(left, 0);
@@ -267,7 +272,143 @@ namespace IslandShot
             Grid.SetRow(translateStatus, 3);
             left.Children.Add(translateStatus);
 
+            // ---- 图片翻译层：盖住整个左栏 ----
+            var imageLayer = new Grid
+            {
+                Background = new SolidColorBrush(TrPanelBg),
+                Visibility = Visibility.Collapsed
+            };
+            imageLayer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            imageLayer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            imageLayer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var imageHead = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            imageHead.Children.Add(new TextBlock
+            {
+                Text = "图片翻译",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(TrMuted),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 10, 0)
+            });
+            var backToText = TrButton("返回文字", false, delegate { ShowTranslateImageLayer(false); });
+            backToText.FontSize = 10.5;
+            imageHead.Children.Add(backToText);
+            Grid.SetRow(imageHead, 0);
+            imageLayer.Children.Add(imageHead);
+
+            translatePreview = new Image { Stretch = Stretch.Uniform, Margin = new Thickness(0, 8, 0, 8) };
+            var previewHost = new Border
+            {
+                CornerRadius = new CornerRadius(10),
+                Background = new SolidColorBrush(Color.FromRgb(25, 21, 34)),
+                BorderBrush = new SolidColorBrush(TrLine),
+                BorderThickness = new Thickness(1),
+                Child = translatePreview
+            };
+            Grid.SetRow(previewHost, 1);
+            imageLayer.Children.Add(previewHost);
+
+            translateImageStatus = new TextBlock
+            {
+                Text = "",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(TrMuted),
+                TextWrapping = TextWrapping.Wrap
+            };
+            Grid.SetRow(translateImageStatus, 2);
+            imageLayer.Children.Add(translateImageStatus);
+
+            Grid.SetRowSpan(imageLayer, 4);
+            left.Children.Add(imageLayer);
+            translateImageLayer = imageLayer;
+
             return left;
+        }
+
+        void ShowTranslateImageLayer(bool show)
+        {
+            if (translateImageLayer == null) return;
+            translateImageLayer.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        void TranslateImageAsync(string path)
+        {
+            SetTabTranslate();
+            ShowTranslateImageLayer(true);
+            translateImageOutput = null;
+            if (translatePreview != null)
+            {
+                try
+                {
+                    var image = new BitmapImage();
+                    image.BeginInit();
+                    image.CacheOption = BitmapCacheOption.OnLoad;
+                    image.UriSource = new Uri(path, UriKind.Absolute);
+                    image.EndInit();
+                    image.Freeze();
+                    translatePreview.Source = image;
+                }
+                catch (Exception) { }
+            }
+            if (translateImageStatus != null) translateImageStatus.Text = "正在翻译…（首次可能稍慢）";
+
+            string sourcePath = path;
+            Task.Run(delegate
+            {
+                try
+                {
+                    ImageTranslationResult result = ImageTranslator.Translate(sourcePath, delegate(string message)
+                    {
+                        Dispatcher.BeginInvoke(new Action(delegate
+                        {
+                            if (translateImageStatus != null) translateImageStatus.Text = message;
+                        }), DispatcherPriority.Background);
+                    });
+
+                    Dispatcher.BeginInvoke(new Action(delegate { ShowImageTranslationResult(result); }), DispatcherPriority.Background);
+                }
+                catch (Exception ex)
+                {
+                    string message = ex.Message;
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        if (translateImageStatus != null) translateImageStatus.Text = "翻译失败：" + message;
+                    }), DispatcherPriority.Background);
+                }
+            });
+        }
+
+        void ShowImageTranslationResult(ImageTranslationResult result)
+        {
+            translateImageOutput = result.OutputPath;
+            if (translatePreview != null && !string.IsNullOrEmpty(result.OutputPath))
+            {
+                try
+                {
+                    var image = new BitmapImage();
+                    image.BeginInit();
+                    image.CacheOption = BitmapCacheOption.OnLoad;
+                    image.UriSource = new Uri(result.OutputPath, UriKind.Absolute);
+                    image.EndInit();
+                    image.Freeze();
+                    translatePreview.Source = image;
+                }
+                catch (Exception) { }
+            }
+
+            if (translateImageStatus != null)
+            {
+                translateImageStatus.Text = "已翻译 " + result.TranslatedCount + " 行 · 结果已保存到 data\\translate-img";
+            }
+
+            var builder = new StringBuilder();
+            for (int i = 0; i < result.Pairs.Count; i++)
+            {
+                builder.Append(result.Pairs[i].Source).Append(" → ").Append(result.Pairs[i].Target);
+                if (i < result.Pairs.Count - 1) builder.Append('\n');
+            }
+            SetTranslateResult("图片翻译：共 " + result.LineCount + " 行，翻译 " + result.TranslatedCount + " 行", builder.ToString());
         }
 
         // ---------------- 右：译文 ----------------

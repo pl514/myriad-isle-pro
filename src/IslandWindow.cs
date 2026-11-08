@@ -1655,6 +1655,8 @@ namespace IslandShot
                 catch (Exception exception) { DragNative.Log("editor failed: " + exception.Message); }
             };
             var previewItem = new MenuItem { Header = "打开预览" };
+            var translateImageItem = new MenuItem { Header = "翻译图片" };
+            translateImageItem.Click += delegate { TranslateImageAsync(path); };
             previewItem.Click += delegate { ShowCardZoom(card, path); };
             var fullItem = new MenuItem { Header = "大图查看" };
             fullItem.Click += delegate { ShowFullImage(path); };
@@ -1674,6 +1676,7 @@ namespace IslandShot
             menu.Items.Add(aiItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(editItem);
+            menu.Items.Add(translateImageItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(previewItem);
             menu.Items.Add(fullItem);
