@@ -1874,10 +1874,14 @@ namespace IslandShot
 
         // 取出的图片关闭后：直接收回胶囊，不再把面板重新展开一下。
         // 预览窗口关闭后：把面板重新展开回来（点空白关掉大图 → 面板又出来）
+        // 预览窗口关闭后：把面板重新展开回来（点空白关掉大图 → 面板又出来）
         void ReturnToCapsule()
         {
             suppressDeactivate = false;
+            peekOwned = false;
+            if (capsule != null) capsule.Visibility = Visibility.Visible;
             if (!expanded) SetExpanded(true);
+            else CapsuleCatch();
         }
         void ShowCardZoom(Border card, string path)
         {
@@ -1887,7 +1891,7 @@ namespace IslandShot
                 Point origin = card.PointToScreen(new Point(0, 0));
                 Rect home = CapsuleScreenRectPhysical();
                 SetExpanded(false);
-                var window = new CardZoomWindow(path, new Rect(origin, new Size(card.ActualWidth, card.ActualHeight)), CapsuleCatch, home);
+                var window = new CardZoomWindow(path, new Rect(origin, new Size(card.ActualWidth, card.ActualHeight)), ReturnToCapsule, home);
                 window.Show();
             }
             catch (Exception exception)
@@ -1904,7 +1908,7 @@ namespace IslandShot
                 suppressDeactivate = true;
                 Rect home = CapsuleScreenRectPhysical();
                 SetExpanded(false);
-                var window = new FullImageViewerWindow(path, CapsuleCatch, home);
+                var window = new FullImageViewerWindow(path, ReturnToCapsule, home);
                 window.Show();
             }
             catch (Exception exception)
