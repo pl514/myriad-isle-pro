@@ -315,28 +315,65 @@ namespace IslandShot
         }
 
 
-        // 把 DSH（Electron 窗口）切到前台：只激活，不改大小
+        [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+        [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder name, ref int size);
+
+        // 低权限进程读不到高权限窗口的标题（GetWindowText 返回空），所以改成
+        // 类名 Chrome_WidgetWin_1 + 进程可执行文件路径来识别 DSH。
+        static string ProcessImagePath(int pid)
+        {
+            IntPtr handle = OpenProcess(0x1000, false, pid);   // PROCESS_QUERY_LIMITED_INFORMATION
+            if (handle == IntPtr.Zero) return "";
+            try
+            {
+                var buffer = new StringBuilder(1024);
+                int size = buffer.Capacity;
+                if (!QueryFullProcessImageName(handle, 0, buffer, ref size)) return "";
+                return buffer.ToString(0, size);
+            }
+            finally { CloseHandle(handle); }
+        }
+
         bool OpenDshWindow()
         {
             IntPtr found = IntPtr.Zero;
+            string why = "";
             try
             {
                 EnumWindows(delegate(IntPtr hwnd, IntPtr param)
                 {
                     if (!IsWindowVisible(hwnd)) return true;
-                    var text = new StringBuilder(256);
-                    if (GetWindowText(hwnd, text, 256) <= 0) return true;
-                    string title = text.ToString();
-                    if (title.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) < 0) return true;
+                    var cls = new StringBuilder(256);
+                    if (GetClassName(hwnd, cls, 256) <= 0) return true;
+                    string clsName = cls.ToString();
+                    if (clsName.IndexOf("Chrome_WidgetWin_1", StringComparison.OrdinalIgnoreCase) < 0) return true;
 
+                    int pid;
+                    GetWindowThreadProcessId(hwnd, out pid);
+                    string image = ProcessImagePath(pid);
+                    why += " | " + clsName + "/" + pid + "/" + System.IO.Path.GetFileName(image);
+
+                    var title = new StringBuilder(256);
+                    GetWindowText(hwnd, title, 256);
+                    string text = title.ToString();
+
+                    bool byImage = image.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0
+                                   || image.IndexOf("dsh", StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool byTitle = text.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (!byImage && !byTitle) return true;
 
                     found = hwnd;
                     return false;
                 }, IntPtr.Zero);
             }
-            catch (Exception) { return false; }
+            catch (Exception ex) { MessengerLog("dsh enum failed: " + ex.Message); return false; }
 
-            if (found == IntPtr.Zero) return false;
+            if (found == IntPtr.Zero)
+            {
+                MessengerLog("dsh window not found. candidates:" + why);
+                return false;
+            }
             try
             {
                 if (IsIconic(found)) ShowWindow(found, 9);
@@ -345,7 +382,7 @@ namespace IslandShot
                 MessengerLog("dsh window activated");
                 return true;
             }
-            catch (Exception) { return false; }
+            catch (Exception ex) { MessengerLog("dsh activate failed: " + ex.Message); return false; }
         }
         void ShowCapsuleNotice(string appId)
         {
