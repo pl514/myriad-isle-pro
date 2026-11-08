@@ -29,7 +29,7 @@ namespace IslandShot
 
         const int HShellFlash = 0x8006;          // HSHELL_REDRAW | 0x8000
         const double CapsuleNoticeWidth = 208;
-        const int NoticeHoldMs = 2000;
+        const int NoticeHoldMs = 0;   // 0 = 常驻，等用户点击/查看消息后消失
 
         Grid capsuleNotice;
         TextBlock capsuleNoticeText;
@@ -197,8 +197,11 @@ namespace IslandShot
                 };
             }
             capsuleNoticeTimer.Stop();
-            capsuleNoticeTimer.Interval = TimeSpan.FromMilliseconds(NoticeHoldMs);
-            capsuleNoticeTimer.Start();
+            if (NoticeHoldMs > 0)
+            {
+                capsuleNoticeTimer.Interval = TimeSpan.FromMilliseconds(NoticeHoldMs);
+                capsuleNoticeTimer.Start();
+            }
         }
 
         void HideCapsuleNotice()
