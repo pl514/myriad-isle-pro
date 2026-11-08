@@ -171,6 +171,35 @@ namespace IslandShot
             return null;
         }
 
+        // ---------------- 屏幕翻译（热键触发） ----------------
+        void StartScreenTranslate()
+        {
+            try
+            {
+                System.Drawing.Rectangle bounds = Forms.Screen.FromPoint(Forms.Cursor.Position).Bounds;
+                string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "screen-translate");
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+
+                string shot = Path.Combine(folder, "shot-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".png");
+                using (System.Drawing.Bitmap bitmap = ScreenCapture.CaptureBitmap(bounds))
+                {
+                    if (bitmap == null) return;
+                    bitmap.Save(shot, System.Drawing.Imaging.ImageFormat.Png);
+                }
+
+                // 扩张动画的起点：胶囊中心（屏幕坐标，DIP）
+                double cx = Left + Width / 2;
+                double cy = Top + capsule.ActualHeight;
+                Rect capsuleRect = ScreenRectOf(capsule);
+                if (!capsuleRect.IsEmpty) { cx = capsuleRect.Left + capsuleRect.Width / 2; cy = capsuleRect.Top + capsuleRect.Height / 2; }
+
+                var overlay = new TranslateOverlayWindow(shot, bounds, new Point(cx, cy));
+                overlay.Show();
+                overlay.Activate();
+            }
+            catch (Exception) { }
+        }
+
         // ---------------- 左：输入 ----------------
         Grid BuildTranslateInputColumn()
         {
