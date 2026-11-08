@@ -32,6 +32,7 @@ namespace IslandShot
         string translatedPath;
         Canvas rippleLayer;
         System.Windows.Shapes.Ellipse rippleBloom;
+        System.Windows.Shapes.Rectangle veil;
         ScaleTransform rippleScale;
         System.Windows.Shapes.Rectangle fog;
         System.Windows.Media.Effects.BlurEffect pictureBlur;
@@ -80,21 +81,41 @@ namespace IslandShot
             picture = new Image { Stretch = Stretch.Fill, Source = LoadImage(sourcePath), Opacity = 0 };
             imageWidth = picture.Source != null ? ((BitmapSource)picture.Source).PixelWidth : 1;
             imageHeight = picture.Source != null ? ((BitmapSource)picture.Source).PixelHeight : 1;
+            // 常驻薄雾：低透明度彩虹，从扩散结束一直盖到翻译完成
+            veil = new System.Windows.Shapes.Rectangle
+            {
+                IsHitTestVisible = false,
+                Opacity = 0,
+                Fill = new LinearGradientBrush(
+                    new GradientStopCollection
+                    {
+                        new GradientStop(Color.FromArgb(34, 255, 170, 120), 0),
+                        new GradientStop(Color.FromArgb(30, 255, 226, 130), 0.22),
+                        new GradientStop(Color.FromArgb(28, 150, 236, 176), 0.45),
+                        new GradientStop(Color.FromArgb(30, 130, 190, 255), 0.68),
+                        new GradientStop(Color.FromArgb(34, 196, 150, 255), 1)
+                    },
+                    new Point(0, 0), new Point(1, 1))
+            };
+            root.Children.Add(veil);
+
             rippleLayer = new Canvas { IsHitTestVisible = false };
             rippleScale = new ScaleTransform(0.1, 0.1);
             rippleBloom = new System.Windows.Shapes.Ellipse
             {
-                Opacity = 0.85,
+                Opacity = 0.55,
                 IsHitTestVisible = false,
                 Fill = new RadialGradientBrush(
                     new GradientStopCollection
                     {
                         new GradientStop(Color.FromArgb(0, 255, 255, 255), 0),
-                        new GradientStop(Color.FromArgb(70, 140, 200, 255), 0.72),
-                        new GradientStop(Color.FromArgb(0, 255, 255, 255), 1)
+                        new GradientStop(Color.FromArgb(90, 255, 176, 92), 0.30),
+                        new GradientStop(Color.FromArgb(95, 255, 236, 140), 0.45),
+                        new GradientStop(Color.FromArgb(95, 148, 236, 170), 0.60),
+                        new GradientStop(Color.FromArgb(90, 140, 190, 255), 0.76),
+                        new GradientStop(Color.FromArgb(0, 200, 160, 255), 1)
                     })
-            };
-            rippleBloom.RenderTransform = rippleScale;
+            };            rippleBloom.RenderTransform = rippleScale;
             rippleBloom.RenderTransformOrigin = new Point(0.5, 0.5);
             rippleLayer.Children.Add(rippleBloom);
             root.Children.Add(rippleLayer);
@@ -257,7 +278,14 @@ namespace IslandShot
             finish.Tick += delegate
             {
                 finish.Stop();
-                if (rippleLayer != null) rippleLayer.Visibility = Visibility.Collapsed;
+                // 确保扩散层彻底清掉，只留常驻薄雾
+                if (rippleBloom != null) rippleBloom.Opacity = 0;
+                if (rippleLayer != null)
+                {
+                    rippleLayer.Visibility = Visibility.Collapsed;
+                    rippleLayer.Children.Clear();
+                }
+                Motion.AnimateDouble(veil, UIElement.OpacityProperty, 0, 1, 420, Motion.Enter, 0, null);
                 SetClickThrough(false);
                 BeginTranslate();
             };
@@ -332,7 +360,7 @@ namespace IslandShot
         void ShowResult(ImageTranslationResult result)
         {
             translatedPath = result.OutputPath;
-            Motion.AnimateDouble(rippleBloom, UIElement.OpacityProperty, rippleBloom.Opacity, 0, 420, Motion.Exit, 0, null);
+            Motion.AnimateDouble(veil, UIElement.OpacityProperty, veil.Opacity, 0, 460, Motion.Exit, 0, null);
             if (!string.IsNullOrEmpty(translatedPath) && File.Exists(translatedPath))
             {
                 picture.Source = LoadImage(translatedPath);
