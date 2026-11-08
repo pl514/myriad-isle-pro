@@ -3,531 +3,770 @@ using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Ink;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using Microsoft.Win32;
+using Forms = System.Windows.Forms;
+using Path = System.IO.Path;
 
 namespace IslandShot
 {
-    /// <summary>图片标注编辑器：画笔、移动、形状、缩放、裁剪、翻转、保存副本。</summary>
+    // 图片编辑器：常用标注 + 裁剪 + 保存/另存为。
+    // 设计参考 ShareX 编辑器的功能划分，但实现完全自写（不依赖它的代码）。
     internal sealed class ImageEditorWindow : Window
     {
-        enum EditorTool { Ink, Pan, Rectangle, Square, Circle, Crop }
+        static readonly Color PanelColor = Color.FromRgb(20, 22, 30);
+        static readonly Color BarColor = Color.FromRgb(26, 29, 38);
+        static readonly Color LineColor = Color.FromRgb(44, 48, 60);
+        static readonly Color TextColor = Color.FromRgb(226, 232, 244);
+        static readonly Color MutedColor = Color.FromRgb(140, 150, 170);
 
-        readonly string path;
-        readonly Action<string> saved;
-        readonly InkCanvas ink = new InkCanvas { Background = Brushes.Transparent };
-        readonly Canvas shapeLayer = new Canvas { Background = Brushes.Transparent, IsHitTestVisible = false };
-        readonly Canvas cropLayer = new Canvas { Background = Brushes.Transparent, IsHitTestVisible = false };
-        readonly Grid canvas = new Grid();
-        readonly Grid view = new Grid();
-        readonly Grid viewport = new Grid();
-        readonly ScaleTransform zoom = new ScaleTransform(1, 1);
-        readonly TranslateTransform pan = new TranslateTransform(0, 0);
-        readonly List<Shape> shapes = new List<Shape>();
-        readonly StackPanel tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        readonly TextBlock zoomLabel = new TextBlock { Text = "100%", Foreground = new SolidColorBrush(Color.FromRgb(90, 104, 122)), FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) };
-        BitmapSource source;
-        Image picture;
-        EditorTool tool = EditorTool.Pan;
-        Border cropBox;
-        Point cropStart;
-        bool panning;
-        Point panStart;
-        double panOriginX, panOriginY;
-        Button brushButton, panButton, rectButton, squareButton, circleButton, cropButton;
+        string sourcePath;
+        readonly Action<string> savedCallback;
+        readonly EditorSurface surface;
+        readonly TextBox textInput;
+        readonly StackPanel toolRow;
+        readonly StackPanel propertyRow;
+        readonly TextBlock statusText;
+        readonly List<Button> toolButtons = new List<Button>();
+
+        EditorTool currentTool = EditorTool.Select;
+        bool textEditingNew;
+        Point textOrigin;
+        Color strokeColor = Color.FromRgb(255, 69, 58);
+        Color fillColor = Color.FromArgb(0, 0, 0, 0);
+        double thickness = 3;
+        double opacity = 1;
+        double fontSize = 22;
+        int blurRadius = 6;
+        int pixelBlock = 10;
+        int stepStart = 1;
 
         public ImageEditorWindow(string path, Action<string> saved)
         {
-            this.path = path;
-            this.saved = saved;
-            Title = "图片编辑 · " + System.IO.Path.GetFileName(path);
-            WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            Background = new SolidColorBrush(Color.FromRgb(245, 247, 251));
-            FontFamily = new FontFamily("Microsoft YaHei UI");
-            ShowInTaskbar = true;
-            Topmost = true;
+            sourcePath = path;
+            savedCallback = saved;
 
-            source = ViewerImageLoader.Load(path);
-            viewport.Background = new SolidColorBrush(Color.FromRgb(24, 28, 36));
-            viewport.ClipToBounds = true;
-            view.HorizontalAlignment = HorizontalAlignment.Center;
-            view.VerticalAlignment = VerticalAlignment.Center;
-            var transforms = new TransformGroup();
-            transforms.Children.Add(zoom);
-            transforms.Children.Add(pan);
-            view.RenderTransform = transforms;
-            view.RenderTransformOrigin = new Point(0, 0);
-            canvas.Children.Add(new Border { Background = Brushes.White });
-            picture = new Image { Stretch = Stretch.Fill };
-            RenderOptions.SetBitmapScalingMode(picture, BitmapScalingMode.HighQuality);
-            canvas.Children.Add(picture);
-            canvas.Children.Add(shapeLayer);
-            canvas.Children.Add(ink);
-            canvas.Children.Add(cropLayer);
-            view.Children.Add(canvas);
-            viewport.Children.Add(view);
-            RebuildCanvas();
-
-            ink.DefaultDrawingAttributes = new DrawingAttributes
-            {
-                Color = Color.FromRgb(255, 72, 72),
-                Width = 4,
-                Height = 4,
-                FitToCurve = true
-            };
-            ink.EditingMode = InkCanvasEditingMode.Ink;
-
-            brushButton = ToolButton("画笔", true);
-            brushButton.Click += delegate { SetTool(EditorTool.Ink); };
-            panButton = ToolButton("移动", false);
-            panButton.Click += delegate { SetTool(EditorTool.Pan); };
-            rectButton = ToolButton("矩形", false);
-            rectButton.Click += delegate { SetTool(EditorTool.Rectangle); };
-            squareButton = ToolButton("正方形", false);
-            squareButton.Click += delegate { SetTool(EditorTool.Square); };
-            circleButton = ToolButton("圆形", false);
-            circleButton.Click += delegate { SetTool(EditorTool.Circle); };
-            cropButton = ToolButton("裁剪", false);
-            cropButton.Click += delegate { SetTool(EditorTool.Crop); };
-            tools.Children.Add(brushButton);
-            tools.Children.Add(panButton);
-            tools.Children.Add(rectButton);
-            tools.Children.Add(squareButton);
-            tools.Children.Add(circleButton);
-            tools.Children.Add(cropButton);
-            tools.Children.Add(new Border { Width = 1, Height = 22, Background = new SolidColorBrush(Color.FromRgb(218, 226, 238)), Margin = new Thickness(7, 0, 7, 0) });
-
-            foreach (string value in new[] { "#FF4848", "#FFB23E", "#FFE45C", "#43D17A", "#38D6F5", "#7C6CF2", "#FFFFFF", "#151A22" })
-            {
-                Color color = (Color)ColorConverter.ConvertFromString(value);
-                var swatch = new Button
-                {
-                    Width = 20,
-                    Height = 20,
-                    Margin = new Thickness(3, 0, 3, 0),
-                    Background = new SolidColorBrush(color),
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(180, 190, 204)),
-                    BorderThickness = new Thickness(1),
-                    Cursor = Cursors.Hand,
-                    ToolTip = value
-                };
-                swatch.Click += delegate { ink.DefaultDrawingAttributes.Color = color; SetTool(EditorTool.Ink); };
-                tools.Children.Add(swatch);
-            }
-
-            tools.Children.Add(new TextBlock { Text = "粗细", Foreground = new SolidColorBrush(Color.FromRgb(90, 104, 122)), FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 5, 0) });
-            var slider = new Slider { Minimum = 1, Maximum = 24, Value = 4, Width = 80, VerticalAlignment = VerticalAlignment.Center };
-            slider.ValueChanged += delegate
-            {
-                ink.DefaultDrawingAttributes.Width = slider.Value;
-                ink.DefaultDrawingAttributes.Height = slider.Value;
-            };
-            tools.Children.Add(slider);
-            var zoomOut = ToolButton("−", false);
-            zoomOut.Width = 28;
-            zoomOut.Padding = new Thickness(0);
-            zoomOut.Click += delegate { AdjustZoom(1 / 1.2); };
-            var zoomIn = ToolButton("+", false);
-            zoomIn.Width = 28;
-            zoomIn.Padding = new Thickness(0);
-            zoomIn.Click += delegate { AdjustZoom(1.2); };
-            tools.Children.Add(zoomOut);
-            tools.Children.Add(zoomLabel);
-            tools.Children.Add(zoomIn);
-
-            var undo = ToolButton("撤回", false);
-            undo.ToolTip = "撤回上一笔（Ctrl+Z）";
-            undo.Click += delegate { Undo(); };
-            var clear = ToolButton("清空", false);
-            clear.Click += delegate { ink.Strokes.Clear(); shapeLayer.Children.Clear(); shapes.Clear(); };
-            var flipH = ToolButton("水平翻转", false);
-            flipH.Click += delegate { Flip(true); };
-            var flipV = ToolButton("垂直翻转", false);
-            flipV.Click += delegate { Flip(false); };
-            var size = ToolButton("尺寸", false);
-            size.Click += delegate { ResizeImage(); };
-            tools.Children.Add(clear);
-            tools.Children.Add(flipH);
-            tools.Children.Add(flipV);
-            tools.Children.Add(size);
-
-            var save = ToolButton("保存副本", true);
-            save.Background = new SolidColorBrush(Color.FromRgb(124, 108, 242));
-            save.Foreground = Brushes.White;
-            save.Click += delegate { SaveCopy(); };
-            var close = ToolButton("关闭", false);
-            close.Click += delegate { Close(); };
-            var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-            right.Children.Add(undo);
-            right.Children.Add(save);
-            right.Children.Add(close);
-
-            var bar = new Grid { Height = 46, Margin = new Thickness(12, 8, 12, 8) };
-            bar.Children.Add(tools);
-            bar.Children.Add(right);
-
-            var root = new DockPanel { Background = new SolidColorBrush(Color.FromRgb(245, 247, 251)) };
-            DockPanel.SetDock(bar, Dock.Top);
-            root.Children.Add(bar);
-            root.Children.Add(viewport);
-            Content = root;
-            Width = Math.Min(1240, SystemParameters.WorkArea.Width - 60);
-            Height = Math.Min(820, SystemParameters.WorkArea.Height - 60);
-            MinWidth = 760;
+            Title = "图片编辑";
+            Width = 1120;
+            Height = 760;
+            MinWidth = 720;
             MinHeight = 520;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            Background = new SolidColorBrush(PanelColor);
+            Foreground = new SolidColorBrush(TextColor);
+            WindowStyle = WindowStyle.SingleBorderWindow;
 
-            PreviewMouseWheel += ZoomWheel;
-            viewport.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            toolRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            propertyRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            statusText = new TextBlock { Foreground = new SolidColorBrush(MutedColor), FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+
+            surface = new EditorSurface();
+            surface.Changed += UpdateStatus;
+            surface.TextRequested += OnTextRequested;
+
+            textInput = new TextBox
             {
-                if (e.ClickCount != 2) return;
-                zoom.ScaleX = zoom.ScaleY = 1;
-                pan.X = pan.Y = 0;
-                zoomLabel.Text = "100%";
+                Visibility = Visibility.Collapsed,
+                MinWidth = 160,
+                FontSize = 18,
+                Background = new SolidColorBrush(Color.FromRgb(34, 38, 48)),
+                Foreground = new SolidColorBrush(TextColor),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(90, 170, 255)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(4, 2, 4, 2),
+                AcceptsReturn = false
             };
-            viewport.PreviewMouseLeftButtonDown += ViewDown;
-            viewport.PreviewMouseMove += ViewMove;
-            viewport.PreviewMouseLeftButtonUp += ViewUp;
-            viewport.MouseRightButtonDown += delegate { if (cropBox != null) { cropLayer.Children.Remove(cropBox); cropBox = null; } };
-            KeyDown += delegate(object sender, KeyEventArgs e)
+            textInput.KeyDown += TextInputKeyDown;
+            textInput.LostFocus += delegate { CommitTextInput(); };
+
+            var canvasHost = new Grid();
+            canvasHost.Children.Add(surface);
+            var inputLayer = new Canvas { IsHitTestVisible = true };
+            inputLayer.Children.Add(textInput);
+            canvasHost.Children.Add(inputLayer);
+
+            BuildToolbar();
+            BuildPropertyBar();
+
+            root.Children.Add(BuildHeader());
+            root.Children.Add(BuildPropertyStrip());
+            Grid.SetRow(canvasHost, 2);
+            root.Children.Add(canvasHost);
+            Grid.SetRow(canvasHost, 2);
+
+            var status = new Border
             {
-                if (e.Key == Key.Escape) Close();
-                if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) != 0) Undo();
+                Background = new SolidColorBrush(BarColor),
+                BorderBrush = new SolidColorBrush(LineColor),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(12, 6, 12, 6),
+                Child = statusText
             };
-            SetTool(EditorTool.Pan);
+            Grid.SetRow(status, 3);
+            root.Children.Add(status);
+
+            Content = root;
+
+            surface.MouseWheel += OnSurfaceWheel;
+            PreviewKeyDown += OnWindowKeyDown;
+
+            LoadImage(path);
+            Loaded += delegate { surface.ZoomToFit(); UpdateStatus(); };
         }
 
-        void RebuildCanvas()
+        // ------------------------------------------------------------ 外观
+        UIElement BuildHeader()
         {
-            double maxWidth = 1000;
-            double maxHeight = 650;
-            double scale = Math.Min(1, Math.Min(maxWidth / source.PixelWidth, maxHeight / source.PixelHeight));
-            double width = Math.Max(220, source.PixelWidth * scale);
-            double height = Math.Max(160, source.PixelHeight * scale);
-            canvas.Width = width;
-            canvas.Height = height;
-            picture.Source = source;
-            picture.Width = width;
-            picture.Height = height;
-            ink.Width = width;
-            ink.Height = height;
-            shapeLayer.Width = width;
-            shapeLayer.Height = height;
-            cropLayer.Width = width;
-            cropLayer.Height = height;
-            zoom.ScaleX = zoom.ScaleY = 1;
-            pan.X = pan.Y = 0;
-            zoomLabel.Text = "100%";
-        }
+            var grid = new Grid { Height = 56, Background = new SolidColorBrush(BarColor) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        void SetTool(EditorTool value)
-        {
-            tool = value;
-            ink.EditingMode = value == EditorTool.Ink ? InkCanvasEditingMode.Ink : InkCanvasEditingMode.None;
-            ink.IsHitTestVisible = value == EditorTool.Ink;
-            viewportCursor(value);
-            Button[] buttons = { brushButton, panButton, rectButton, squareButton, circleButton, cropButton };
-            foreach (Button button in buttons)
+            var logo = new TextBlock
             {
-                if (button != null) button.Background = Brushes.Transparent;
-            }
-            Button active = value == EditorTool.Ink ? brushButton : value == EditorTool.Pan ? panButton : value == EditorTool.Rectangle ? rectButton : value == EditorTool.Square ? squareButton : value == EditorTool.Circle ? circleButton : cropButton;
-            if (active != null) active.Background = new SolidColorBrush(Color.FromRgb(238, 234, 255));
+                Text = "图片编辑",
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(TextColor),
+                Margin = new Thickness(14, 0, 16, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            grid.Children.Add(logo);
+
+            var scroll = new ScrollViewer
+            {
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = toolRow,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(scroll, 1);
+            grid.Children.Add(scroll);
+
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
+            actions.Children.Add(BarButton("撤销", delegate { surface.Undo(); UpdateStatus(); }));
+            actions.Children.Add(BarButton("重做", delegate { surface.Redo(); UpdateStatus(); }));
+            actions.Children.Add(BarButton("复制", delegate { CopyToClipboard(); }));
+            actions.Children.Add(BarButton("保存", delegate { Save(false); }));
+            actions.Children.Add(BarButton("另存为", delegate { Save(true); }));
+            Grid.SetColumn(actions, 2);
+            grid.Children.Add(actions);
+
+            var border = new Border
+            {
+                Background = new SolidColorBrush(BarColor),
+                BorderBrush = new SolidColorBrush(LineColor),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Child = grid
+            };
+            return border;
         }
 
-        void viewportCursor(EditorTool value)
+        UIElement BuildPropertyStrip()
         {
-            Cursor cursor = value == EditorTool.Pan ? Cursors.SizeAll : value == EditorTool.Crop ? Cursors.Cross : value == EditorTool.Ink ? Cursors.Pen : Cursors.Cross;
-            Cursor = cursor;
-            if (view != null) view.Cursor = cursor;
-            if (viewport != null) viewport.Cursor = cursor;
-            if (ink != null) ink.Cursor = cursor;
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(23, 26, 34)),
+                BorderBrush = new SolidColorBrush(LineColor),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(12, 8, 12, 8),
+                Child = propertyRow
+            };
+            Grid.SetRow(border, 1);
+            return border;
         }
 
-        void AdjustZoom(double factor)
+        Button BarButton(string text, Action action)
         {
-            double next = Math.Max(1.0, Math.Min(5, zoom.ScaleX * factor));
-            zoom.ScaleX = next;
-            zoom.ScaleY = next;
-            ClampPan();
-            zoomLabel.Text = (int)Math.Round(next * 100) + "%";
-        }
-
-        void ZoomWheel(object sender, MouseWheelEventArgs e)
-        {
-            double oldScale = zoom.ScaleX;
-            double next = Math.Max(1.0, Math.Min(5, oldScale * (e.Delta > 0 ? 1.12 : 1 / 1.12)));
-            zoom.ScaleX = next;
-            zoom.ScaleY = next;
-            ClampPan();
-            zoomLabel.Text = (int)Math.Round(next * 100) + "%";
-            e.Handled = true;
-        }
-
-        void ClampPan()
-        {
-            if (viewport == null || canvas == null) return;
-            double scaledWidth = canvas.Width * zoom.ScaleX;
-            double scaledHeight = canvas.Height * zoom.ScaleY;
-            double maxX = Math.Max(120, scaledWidth - 80);
-            double maxY = Math.Max(120, scaledHeight - 80);
-            pan.X = Math.Max(-maxX, Math.Min(maxX, pan.X));
-            pan.Y = Math.Max(-maxY, Math.Min(maxY, pan.Y));
-        }
-
-        void ViewDown(object sender, MouseButtonEventArgs e)
-        {
-            if (tool == EditorTool.Ink) return;
-            Point at = e.GetPosition(canvas);
-            if (tool == EditorTool.Pan)
-            {
-                panning = true;
-                panStart = e.GetPosition(this);
-                panOriginX = pan.X;
-                panOriginY = pan.Y;
-                view.CaptureMouse();
-                e.Handled = true;
-                return;
-            }
-            if (tool == EditorTool.Crop)
-            {
-                cropStart = at;
-                cropBox = new Border
-                {
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(124, 108, 242)),
-                    BorderThickness = new Thickness(2),
-                    Background = new SolidColorBrush(Color.FromArgb(35, 124, 108, 242)),
-                    IsHitTestVisible = false
-                };
-                Canvas.SetLeft(cropBox, at.X);
-                Canvas.SetTop(cropBox, at.Y);
-                cropLayer.Children.Add(cropBox);
-                view.CaptureMouse();
-                e.Handled = true;
-                return;
-            }
-            if (tool == EditorTool.Rectangle || tool == EditorTool.Square || tool == EditorTool.Circle)
-            {
-                shapes.Add(null);
-                Shape shape = tool == EditorTool.Circle ? (Shape)new Ellipse() : new Rectangle();
-                shape.Stroke = new SolidColorBrush(ink.DefaultDrawingAttributes.Color);
-                shape.StrokeThickness = ink.DefaultDrawingAttributes.Width;
-                shape.Fill = Brushes.Transparent;
-                shapeLayer.Children.Add(shape);
-                shapes[shapes.Count - 1] = shape;
-                Canvas.SetLeft(shape, at.X);
-                Canvas.SetTop(shape, at.Y);
-                shape.Tag = new Point(at.X, at.Y);
-                view.CaptureMouse();
-                e.Handled = true;
-            }
-        }
-
-        void ViewMove(object sender, MouseEventArgs e)
-        {
-            if (panning)
-            {
-                Point at = e.GetPosition(this);
-                pan.X = panOriginX + (at.X - panStart.X);
-                pan.Y = panOriginY + (at.Y - panStart.Y);
-                ClampPan();
-                e.Handled = true;
-                return;
-            }
-            if (cropBox != null && tool == EditorTool.Crop)
-            {
-                Point at = e.GetPosition(canvas);
-                double left = Math.Min(cropStart.X, at.X);
-                double top = Math.Min(cropStart.Y, at.Y);
-                Canvas.SetLeft(cropBox, left);
-                Canvas.SetTop(cropBox, top);
-                cropBox.Width = Math.Abs(at.X - cropStart.X);
-                cropBox.Height = Math.Abs(at.Y - cropStart.Y);
-                e.Handled = true;
-                return;
-            }
-            if (shapes.Count > 0 && shapes[shapes.Count - 1] != null && e.LeftButton == MouseButtonState.Pressed)
-            {
-                Shape shape = shapes[shapes.Count - 1];
-                if (!(shape.Tag is Point)) return;
-                Point start = (Point)shape.Tag;
-                Point at = e.GetPosition(canvas);
-                double width = Math.Abs(at.X - start.X);
-                double height = Math.Abs(at.Y - start.Y);
-                if (tool == EditorTool.Square || tool == EditorTool.Circle)
-                {
-                    width = Math.Max(width, height);
-                    height = width;
-                }
-                double left = at.X < start.X ? start.X - width : start.X;
-                double top = at.Y < start.Y ? start.Y - height : start.Y;
-                Canvas.SetLeft(shape, left);
-                Canvas.SetTop(shape, top);
-                shape.Width = width;
-                shape.Height = height;
-                e.Handled = true;
-            }
-        }
-
-        void ViewUp(object sender, MouseButtonEventArgs e)
-        {
-            if (panning)
-            {
-                panning = false;
-                view.ReleaseMouseCapture();
-                e.Handled = true;
-                return;
-            }
-            if (cropBox != null && tool == EditorTool.Crop)
-            {
-                double left = Canvas.GetLeft(cropBox);
-                double top = Canvas.GetTop(cropBox);
-                int x = Math.Max(0, (int)Math.Round(left * source.PixelWidth / canvas.Width));
-                int y = Math.Max(0, (int)Math.Round(top * source.PixelHeight / canvas.Height));
-                int w = Math.Min(source.PixelWidth - x, Math.Max(1, (int)Math.Round(cropBox.Width * source.PixelWidth / canvas.Width)));
-                int h = Math.Min(source.PixelHeight - y, Math.Max(1, (int)Math.Round(cropBox.Height * source.PixelHeight / canvas.Height)));
-                cropLayer.Children.Remove(cropBox);
-                cropBox = null;
-                view.ReleaseMouseCapture();
-                if (w > 4 && h > 4)
-                {
-                    source = new CroppedBitmap(source, new Int32Rect(x, y, w, h));
-                    ink.Strokes.Clear();
-                    shapeLayer.Children.Clear();
-                    shapes.Clear();
-                    RebuildCanvas();
-                }
-                e.Handled = true;
-                return;
-            }
-            if (shapes.Count > 0 && shapes[shapes.Count - 1] != null)
-            {
-                Shape shape = shapes[shapes.Count - 1];
-                if (shape.Width < 3 || shape.Height < 3)
-                {
-                    shapeLayer.Children.Remove(shape);
-                    shapes.RemoveAt(shapes.Count - 1);
-                }
-                view.ReleaseMouseCapture();
-                e.Handled = true;
-            }
-        }
-
-        void Undo()
-        {
-            if (shapes.Count > 0)
-            {
-                Shape shape = shapes[shapes.Count - 1];
-                shapes.RemoveAt(shapes.Count - 1);
-                if (shape != null) shapeLayer.Children.Remove(shape);
-                return;
-            }
-            if (ink.Strokes.Count > 0) ink.Strokes.RemoveAt(ink.Strokes.Count - 1);
-        }
-
-        void Flip(bool horizontal)
-        {
-            source = new TransformedBitmap(source, new ScaleTransform(horizontal ? -1 : 1, horizontal ? 1 : -1));
-            ink.Strokes.Clear();
-            shapeLayer.Children.Clear();
-            shapes.Clear();
-            RebuildCanvas();
-        }
-
-        static Button ToolButton(string text, bool primary)
-        {
-            return new Button
+            var button = new Button
             {
                 Content = text,
-                Height = 30,
-                Padding = new Thickness(9, 0, 9, 0),
-                Margin = new Thickness(2, 0, 2, 0),
                 FontSize = 12,
-                Foreground = new SolidColorBrush(Color.FromRgb(65, 78, 96)),
-                Background = primary ? new SolidColorBrush(Color.FromRgb(238, 234, 255)) : Brushes.Transparent,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(220, 226, 236)),
+                Padding = new Thickness(10, 6, 10, 6),
+                Margin = new Thickness(4, 0, 0, 0),
+                Background = new SolidColorBrush(Color.FromRgb(38, 42, 54)),
+                Foreground = new SolidColorBrush(TextColor),
+                BorderBrush = new SolidColorBrush(LineColor),
                 BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand
             };
+            button.Click += delegate { action(); };
+            return button;
+        }
+
+        void BuildToolbar()
+        {
+            toolRow.Children.Clear();
+            toolButtons.Clear();
+
+            AddTool(EditorTool.Select, "选择", "M2,2 L2,15 L6,11 L9,16 L11,15 L8,10 L14,10 Z", true);
+            AddTool(EditorTool.Rect, "矩形", "M2,4 H14 V12 H2 Z", true);
+            AddTool(EditorTool.Ellipse, "椭圆", "M2,8 A6,4 0 1 0 14,8 A6,4 0 1 0 2,8", true);
+            AddTool(EditorTool.Line, "直线", "M3,13 L13,3", false);
+            AddTool(EditorTool.Arrow, "箭头", "M3,13 L13,3 M8,3 H13 V8", false);
+            AddTool(EditorTool.Pen, "画笔", "M3,13 C5,8 8,11 10,6 C11,4 12,3 13,2", false);
+            AddTool(EditorTool.Highlight, "高亮", "M4,10 H12 V13 H4 Z M6,3 H13 V9 H6 Z", true);
+            AddTool(EditorTool.Text, "文字", "M4,4 H12 M8,4 V13", false);
+            AddTool(EditorTool.Bubble, "气泡", "M3,4 H13 V10 H7 L5,13 V10 H3 Z", true);
+            AddTool(EditorTool.Step, "步骤", "M8,2 A6,6 0 1 1 7.9,2", true);
+            AddTool(EditorTool.Blur, "模糊", "M3,8 C5,4 9,4 11,8 C9,12 5,12 3,8", true);
+            AddTool(EditorTool.Pixelate, "马赛克", "M3,3 H7 V7 H3 Z M9,3 H13 V7 H9 Z M3,9 H7 V13 H3 Z M9,9 H13 V13 H9 Z", true);
+            AddTool(EditorTool.Crop, "裁剪", "M5,2 V13 H16 M2,5 H13 V16", false);
+
+            toolRow.Children.Add(Separator());
+
+            var fit = BarButton("适合窗口", delegate { surface.ZoomToFit(); UpdateStatus(); });
+            toolRow.Children.Add(fit);
+            var zoomIn = BarButton("放大", delegate { Zoom(1.2); });
+            toolRow.Children.Add(zoomIn);
+            var zoomOut = BarButton("缩小", delegate { Zoom(1 / 1.2); });
+            toolRow.Children.Add(zoomOut);
+
+            SelectTool(EditorTool.Select);
+        }
+
+        FrameworkElement Separator()
+        {
+            return new Border
+            {
+                Width = 1,
+                Height = 22,
+                Margin = new Thickness(8, 0, 8, 0),
+                Background = new SolidColorBrush(LineColor),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        void AddTool(EditorTool tool, string tip, string geometry, bool filled)
+        {
+            var icon = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse(geometry),
+                Stroke = new SolidColorBrush(Color.FromRgb(214, 222, 236)),
+                StrokeThickness = 1.4,
+                Fill = filled ? new SolidColorBrush(Color.FromArgb(70, 214, 222, 236)) : null,
+                Stretch = Stretch.Uniform,
+                Width = 15,
+                Height = 15,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var button = new Button
+            {
+                Width = 32,
+                Height = 32,
+                Margin = new Thickness(2, 0, 2, 0),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(1),
+                BorderBrush = Brushes.Transparent,
+                ToolTip = tip,
+                Cursor = Cursors.Hand,
+                Content = icon,
+                Tag = tool
+            };
+            button.Click += delegate
+            {
+                SelectTool(tool);
+            };
+            toolButtons.Add(button);
+            toolRow.Children.Add(button);
+        }
+
+        void SelectTool(EditorTool tool)
+        {
+            currentTool = tool;
+            surface.Tool = tool;
+            if (tool != EditorTool.Crop) surface.CancelCrop();
+            surface.Cursor = tool == EditorTool.Pan ? Cursors.Hand : (tool == EditorTool.Select ? Cursors.Arrow : Cursors.Cross);
+
+            foreach (Button button in toolButtons)
+            {
+                bool active = button.Tag is EditorTool && (EditorTool)button.Tag == tool;
+                button.Background = active
+                    ? new SolidColorBrush(Color.FromRgb(58, 96, 160))
+                    : Brushes.Transparent;
+                button.BorderBrush = active
+                    ? new SolidColorBrush(Color.FromRgb(90, 170, 255))
+                    : Brushes.Transparent;
+            }
+            BuildPropertyBar();
+            UpdateStatus();
+        }
+
+        void BuildPropertyBar()
+        {
+            propertyRow.Children.Clear();
+
+            propertyRow.Children.Add(Label("颜色"));
+            AddColorSwatches(strokeColor, delegate(Color color)
+            {
+                strokeColor = color;
+                ApplyToSelected(delegate(EditorItem item) { item.Stroke = color; });
+                BuildPropertyBar();
+            });
+
+            propertyRow.Children.Add(Label("填充", 10));
+            AddColorSwatches(fillColor, delegate(Color color)
+            {
+                fillColor = color;
+                ApplyToSelected(delegate(EditorItem item) { item.Fill = color; });
+                BuildPropertyBar();
+            });
+            var transparent = BarButton("无", delegate
+            {
+                fillColor = Color.FromArgb(0, 0, 0, 0);
+                ApplyToSelected(delegate(EditorItem item) { item.Fill = Color.FromArgb(0, 0, 0, 0); });
+            });
+            propertyRow.Children.Add(transparent);
+
+            propertyRow.Children.Add(Label("粗细", 10));
+            AddSlider(1, 24, thickness, delegate(double value)
+            {
+                thickness = value;
+                ApplyToSelected(delegate(EditorItem item) { item.Thickness = value; });
+            });
+
+            propertyRow.Children.Add(Label("透明度", 10));
+            AddSlider(5, 100, opacity * 100, delegate(double value)
+            {
+                opacity = value / 100.0;
+                ApplyToSelected(delegate(EditorItem item) { item.Opacity = opacity; });
+            });
+
+            bool textLike = currentTool == EditorTool.Text || surface.Selected is TextItem;
+            if (textLike)
+            {
+                propertyRow.Children.Add(Label("字号", 10));
+                AddSlider(8, 72, fontSize, delegate(double value)
+                {
+                    fontSize = value;
+                    TextItem item = surface.Selected as TextItem;
+                    if (item != null) { item.FontSize = value; item.Layout(); surface.InvalidateVisual(); }
+                });
+            }
+
+            if (currentTool == EditorTool.Blur)
+            {
+                propertyRow.Children.Add(Label("模糊程度", 10));
+                AddSlider(1, 20, blurRadius, delegate(double value) { blurRadius = (int)Math.Round(value); });
+            }
+
+            if (currentTool == EditorTool.Pixelate)
+            {
+                propertyRow.Children.Add(Label("马赛克块", 10));
+                AddSlider(2, 40, pixelBlock, delegate(double value) { pixelBlock = (int)Math.Round(value); });
+            }
+
+            if (currentTool == EditorTool.Step)
+            {
+                propertyRow.Children.Add(Label("起始编号", 10));
+                AddSlider(1, 30, stepStart, delegate(double value) { stepStart = (int)Math.Round(value); surface.NextStepNumber = stepStart; });
+            }
+
+            if (currentTool == EditorTool.Crop)
+            {
+                propertyRow.Children.Add(BarButton("应用裁剪", delegate { surface.ApplyCrop(); UpdateStatus(); }));
+                propertyRow.Children.Add(BarButton("取消裁剪", delegate { surface.CancelCrop(); UpdateStatus(); }));
+            }
+
+            if (surface.Selected != null)
+            {
+                propertyRow.Children.Add(Label("图层", 10));
+                propertyRow.Children.Add(BarButton("上移", delegate { surface.MoveLayer(1); }));
+                propertyRow.Children.Add(BarButton("下移", delegate { surface.MoveLayer(-1); }));
+                propertyRow.Children.Add(BarButton("置顶", delegate { surface.MoveLayer(1000); }));
+                propertyRow.Children.Add(BarButton("置底", delegate { surface.MoveLayer(-1000); }));
+                propertyRow.Children.Add(BarButton("删除", delegate { surface.DeleteSelected(); UpdateStatus(); }));
+            }
+
+            propertyRow.Children.Add(Label("图片", 10));
+            propertyRow.Children.Add(BarButton("旋转 90°", delegate { TransformImage(delegate(BitmapSource image) { return ImageEffects.Rotate90(image, true); }); }));
+            propertyRow.Children.Add(BarButton("水平翻转", delegate { TransformImage(delegate(BitmapSource image) { return ImageEffects.Flip(image, true); }); }));
+            propertyRow.Children.Add(BarButton("灰度", delegate { TransformImage(ImageEffects.Grayscale); }));
+            propertyRow.Children.Add(BarButton("反相", delegate { TransformImage(ImageEffects.Invert); }));
+            propertyRow.Children.Add(BarButton("棕褐", delegate { TransformImage(ImageEffects.Sepia); }));
+            propertyRow.Children.Add(BarButton("锐化", delegate { TransformImage(delegate(BitmapSource image) { return ImageEffects.Sharpen(image, 45); }); }));
+            propertyRow.Children.Add(BarButton("暗角", delegate { TransformImage(delegate(BitmapSource image) { return ImageEffects.Vignette(image, 45); }); }));
+            propertyRow.Children.Add(BarButton("加留白", delegate { AddPadding(); }));
+            propertyRow.Children.Add(BarButton("调整大小", delegate { ResizeImage(); }));
+        }
+
+        TextBlock Label(string text, double leftMargin = 0)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                FontSize = 11.5,
+                Foreground = new SolidColorBrush(MutedColor),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(leftMargin, 0, 6, 0)
+            };
+        }
+
+        void AddColorSwatches(Color current, Action<Color> pick)
+        {
+            Color[] palette = new Color[]
+            {
+                Color.FromRgb(255, 69, 58), Color.FromRgb(255, 179, 64), Color.FromRgb(255, 226, 66),
+                Color.FromRgb(88, 232, 156), Color.FromRgb(64, 200, 255), Color.FromRgb(90, 170, 255),
+                Color.FromRgb(179, 157, 255), Color.FromRgb(255, 255, 255), Color.FromRgb(150, 158, 175),
+                Color.FromRgb(24, 26, 32)
+            };
+
+            foreach (Color color in palette)
+            {
+                bool active = color == current;
+                var swatch = new Border
+                {
+                    Width = 18,
+                    Height = 18,
+                    CornerRadius = new CornerRadius(4),
+                    Margin = new Thickness(0, 0, 4, 0),
+                    Background = new SolidColorBrush(color),
+                    BorderBrush = new SolidColorBrush(active ? Color.FromRgb(90, 170, 255) : LineColor),
+                    BorderThickness = new Thickness(active ? 2 : 1),
+                    Cursor = Cursors.Hand
+                };
+                Color captured = color;
+                swatch.MouseLeftButtonUp += delegate { pick(captured); };
+                propertyRow.Children.Add(swatch);
+            }
+
+            var custom = new Border
+            {
+                Width = 18,
+                Height = 18,
+                CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(2, 0, 0, 0),
+                Background = new SolidColorBrush(Color.FromRgb(38, 42, 54)),
+                BorderBrush = new SolidColorBrush(LineColor),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand,
+                ToolTip = "自定义颜色"
+            };
+            custom.MouseLeftButtonUp += delegate
+            {
+                using (var dialog = new Forms.ColorDialog())
+                {
+                    dialog.FullOpen = true;
+                    if (dialog.ShowDialog() == Forms.DialogResult.OK)
+                    {
+                        pick(Color.FromArgb(dialog.Color.A, dialog.Color.R, dialog.Color.G, dialog.Color.B));
+                    }
+                }
+            };
+            propertyRow.Children.Add(custom);
+        }
+
+        void AddSlider(double min, double max, double value, Action<double> changed)
+        {
+            var slider = new Slider
+            {
+                Width = 92,
+                Minimum = min,
+                Maximum = max,
+                Value = Math.Max(min, Math.Min(max, value)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 10, 0)
+            };
+            slider.ValueChanged += delegate(object sender, RoutedPropertyChangedEventArgs<double> e) { changed(e.NewValue); };
+            propertyRow.Children.Add(slider);
+        }
+
+        void ApplyToSelected(Action<EditorItem> action)
+        {
+            if (surface.Selected == null) return;
+            action(surface.Selected);
+            surface.InvalidateVisual();
+        }
+
+        // ------------------------------------------------------------ 图片
+        void LoadImage(string path)
+        {
+            try
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.UriSource = new Uri(path, UriKind.Absolute);
+                bitmap.EndInit();
+                bitmap.Freeze();
+                surface.BaseImage = bitmap;
+                surface.ZoomToFit();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "无法打开图片：" + ex.Message, "图片编辑");
+            }
+        }
+
+        void TransformImage(Func<BitmapSource, BitmapSource> transform)
+        {
+            if (surface.BaseImage == null) return;
+            surface.PushUndo();
+            try
+            {
+                surface.BaseImage = transform(surface.BaseImage);
+                surface.ZoomToFit();
+                surface.InvalidateVisual();
+                UpdateStatus();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "处理失败：" + ex.Message, "图片编辑");
+            }
+        }
+
+        void AddPadding()
+        {
+            if (surface.BaseImage == null) return;
+            surface.PushUndo();
+            surface.BaseImage = ImageEffects.AddBackground(surface.BaseImage, Color.FromRgb(255, 255, 255), 24, 10);
+            surface.ZoomToFit();
+            surface.InvalidateVisual();
+            UpdateStatus();
         }
 
         void ResizeImage()
         {
-            var dialog = new Window
-            {
-                Title = "调整尺寸",
-                Width = 300,
-                Height = 190,
-                Owner = this,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(245, 247, 251)),
-                FontFamily = new FontFamily("Microsoft YaHei UI")
-            };
-            var panel = new StackPanel { Margin = new Thickness(18) };
-            panel.Children.Add(new TextBlock { Text = "宽度（像素）", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(90, 104, 122)) });
-            var widthBox = new TextBox { Text = source.PixelWidth.ToString(), Height = 28, Margin = new Thickness(0, 3, 0, 10) };
-            panel.Children.Add(widthBox);
-            panel.Children.Add(new TextBlock { Text = "高度（像素）", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(90, 104, 122)) });
-            var heightBox = new TextBox { Text = source.PixelHeight.ToString(), Height = 28, Margin = new Thickness(0, 3, 0, 10) };
-            panel.Children.Add(heightBox);
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var cancel = new Button { Content = "取消", Width = 70, Height = 28, Margin = new Thickness(0, 0, 8, 0) };
-            cancel.Click += delegate { dialog.Close(); };
-            var apply = new Button { Content = "应用", Width = 70, Height = 28 };
-            apply.Click += delegate
-            {
-                int width, height;
-                if (!int.TryParse(widthBox.Text, out width) || !int.TryParse(heightBox.Text, out height) || width < 16 || height < 16 || width > 12000 || height > 12000)
-                {
-                    MessageBox.Show(dialog, "请输入 16–12000 之间的尺寸。", "调整尺寸", MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
-                }
-                source = new TransformedBitmap(source, new ScaleTransform((double)width / source.PixelWidth, (double)height / source.PixelHeight));
-                ink.Strokes.Clear();
-                shapeLayer.Children.Clear();
-                shapes.Clear();
-                RebuildCanvas();
-                dialog.Close();
-            };
-            buttons.Children.Add(cancel);
-            buttons.Children.Add(apply);
-            panel.Children.Add(buttons);
-            dialog.Content = panel;
-            dialog.ShowDialog();
+            if (surface.BaseImage == null) return;
+            var dialog = new ResizeDialog(surface.BaseImage.PixelWidth, surface.BaseImage.PixelHeight) { Owner = this };
+            if (dialog.ShowDialog() != true) return;
+            surface.PushUndo();
+            surface.BaseImage = ImageEffects.Resize(surface.BaseImage, dialog.TargetWidth, dialog.TargetHeight);
+            surface.ZoomToFit();
+            surface.InvalidateVisual();
+            UpdateStatus();
         }
 
-        void SaveCopy()
+        void Zoom(double factor)
         {
-            var dialog = new SaveFileDialog
+            Point center = new Point(surface.ActualWidth / 2, surface.ActualHeight / 2);
+            Point before = surface.ToImage(center);
+            surface.Scale = Math.Max(0.05, Math.Min(8, surface.Scale * factor));
+            // 让缩放中心下的图片点保持不动：center = before * Scale + Offset
+            surface.Offset = new Point(center.X - before.X * surface.Scale, center.Y - before.Y * surface.Scale);
+            surface.InvalidateVisual();
+            UpdateStatus();
+        }
+
+        void OnSurfaceWheel(object sender, MouseWheelEventArgs e)
+        {
+            Zoom(e.Delta > 0 ? 1.12 : 1 / 1.12);
+            e.Handled = true;
+        }
+
+        // ------------------------------------------------------------ 文字输入
+        void OnTextRequested(Point origin)
+        {
+            textOrigin = origin;
+            TextItem existing = surface.Selected as TextItem;
+            textEditingNew = existing == null;
+            textInput.Text = existing != null ? existing.Text : "";
+            textInput.Visibility = Visibility.Visible;
+
+            Canvas.SetLeft(textInput, origin.X * surface.Scale + surface.Offset.X);
+            Canvas.SetTop(textInput, origin.Y * surface.Scale + surface.Offset.Y);
+            textInput.Focus();
+            textInput.SelectAll();
+        }
+
+        void TextInputKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter) { CommitTextInput(); e.Handled = true; }
+            else if (e.Key == Key.Escape) { textInput.Visibility = Visibility.Collapsed; e.Handled = true; }
+        }
+
+        void CommitTextInput()
+        {
+            if (textInput.Visibility != Visibility.Visible) return;
+            textInput.Visibility = Visibility.Collapsed;
+            surface.CommitText(textInput.Text, textOrigin, textEditingNew);
+        }
+
+        // ------------------------------------------------------------ 保存
+        void CopyToClipboard()
+        {
+            BitmapSource composed = surface.Compose();
+            if (composed == null) return;
+            try { Clipboard.SetImage(composed); }
+            catch (Exception ex) { MessageBox.Show(this, "复制失败：" + ex.Message, "图片编辑"); }
+        }
+
+        void Save(bool saveAs)
+        {
+            BitmapSource composed = surface.Compose();
+            if (composed == null) return;
+
+            string target = sourcePath;
+            if (saveAs || string.IsNullOrEmpty(target))
             {
-                Title = "保存编辑后的图片",
-                FileName = System.IO.Path.GetFileNameWithoutExtension(path) + "_编辑.png",
-                Filter = "PNG 图片|*.png",
-                DefaultExt = ".png",
-                AddExtension = true,
-                OverwritePrompt = true
-            };
-            if (dialog.ShowDialog() != true) return;
+                using (var dialog = new Forms.SaveFileDialog())
+                {
+                    dialog.Filter = "PNG 图片|*.png|JPEG 图片|*.jpg;*.jpeg";
+                    dialog.FileName = string.IsNullOrEmpty(target)
+                        ? "截图_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png"
+                        : Path.GetFileNameWithoutExtension(target) + "_编辑" + Path.GetExtension(target);
+                    if (!string.IsNullOrEmpty(target))
+                    {
+                        try { dialog.InitialDirectory = Path.GetDirectoryName(target); }
+                        catch (Exception) { }
+                    }
+                    if (dialog.ShowDialog() != Forms.DialogResult.OK) return;
+                    target = dialog.FileName;
+                }
+            }
+
             try
             {
-                var bitmap = new RenderTargetBitmap(
-                    Math.Max(1, (int)Math.Round(canvas.Width)),
-                    Math.Max(1, (int)Math.Round(canvas.Height)),
-                    96, 96, PixelFormats.Pbgra32);
-                bitmap.Render(canvas);
-                var encoder = new PngBitmapEncoder();
-                encoder.Frames.Add(BitmapFrame.Create(bitmap));
-                using (var stream = File.Create(dialog.FileName)) encoder.Save(stream);
-                if (saved != null) saved(dialog.FileName);
+                WriteBitmap(composed, target);
             }
-            catch (Exception exception)
+            catch (Exception ex)
             {
-                MessageBox.Show(this, "保存失败：" + exception.Message, "图片编辑", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, "保存失败：" + ex.Message, "图片编辑");
+                return;
             }
+
+            if (savedCallback != null) savedCallback(target);
+            if (saveAs) sourcePath = target;
+            Close();
+        }
+
+        static void WriteBitmap(BitmapSource bitmap, string path)
+        {
+            string extension = Path.GetExtension(path).ToLowerInvariant();
+            BitmapEncoder encoder;
+            BitmapSource source = bitmap;
+
+            if (extension == ".jpg" || extension == ".jpeg")
+            {
+                // JPEG 不支持透明：先铺白底
+                var visual = new DrawingVisual();
+                using (DrawingContext dc = visual.RenderOpen())
+                {
+                    dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, bitmap.PixelWidth, bitmap.PixelHeight));
+                    dc.DrawImage(bitmap, new Rect(0, 0, bitmap.PixelWidth, bitmap.PixelHeight));
+                }
+                var flattened = new RenderTargetBitmap(bitmap.PixelWidth, bitmap.PixelHeight, 96, 96, PixelFormats.Pbgra32);
+                flattened.Render(visual);
+                flattened.Freeze();
+                source = flattened;
+                encoder = new JpegBitmapEncoder { QualityLevel = 92 };
+            }
+            else
+            {
+                encoder = new PngBitmapEncoder();
+            }
+
+            encoder.Frames.Add(BitmapFrame.Create(source));
+            using (FileStream stream = File.Create(path))
+            {
+                encoder.Save(stream);
+            }
+        }
+
+        // ------------------------------------------------------------ 杂项
+        EditorItem lastSelectedForBar;
+
+        void UpdateStatus()
+        {
+            if (surface.BaseImage != null)
+            {
+                statusText.Text = string.Format("{0} × {1} px    缩放 {2}%    对象 {3} 个    提示：Ctrl+Z 撤销 · Ctrl+S 保存 · Delete 删除 · 双击文字可改",
+                    surface.BaseImage.PixelWidth, surface.BaseImage.PixelHeight,
+                    Math.Round(surface.Scale * 100), surface.Items.Count);
+            }
+
+            // 只有选中对象换了才重建属性栏（拖动时不动，避免滑块被重置）
+            if (!ReferenceEquals(lastSelectedForBar, surface.Selected))
+            {
+                lastSelectedForBar = surface.Selected;
+                BuildPropertyBar();
+            }
+        }
+
+        void OnWindowKeyDown(object sender, KeyEventArgs e)
+        {
+            bool control = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+
+            if (control && e.Key == Key.Z) { surface.Undo(); e.Handled = true; return; }
+            if (control && e.Key == Key.Y) { surface.Redo(); e.Handled = true; return; }
+            if (control && e.Key == Key.S) { Save(false); e.Handled = true; return; }
+            if (control && e.Key == Key.C) { CopyToClipboard(); e.Handled = true; return; }
+            if (control && e.Key == Key.D) { surface.DuplicateSelected(); e.Handled = true; return; }
+            if (e.Key == Key.Delete) { surface.DeleteSelected(); e.Handled = true; return; }
+            if (e.Key == Key.Escape)
+            {
+                if (surface.CropActive) { surface.CancelCrop(); e.Handled = true; return; }
+                Close();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.Enter && surface.CropActive) { surface.ApplyCrop(); e.Handled = true; }
+        }
+    }
+
+    // 调整图片大小的小对话框
+    internal sealed class ResizeDialog : Window
+    {
+        readonly TextBox widthBox;
+        readonly TextBox heightBox;
+
+        public int TargetWidth { get; private set; }
+        public int TargetHeight { get; private set; }
+
+        public ResizeDialog(int width, int height)
+        {
+            TargetWidth = width;
+            TargetHeight = height;
+
+            Title = "调整图片大小";
+            Width = 300;
+            Height = 200;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            ResizeMode = ResizeMode.NoResize;
+            Background = new SolidColorBrush(Color.FromRgb(24, 26, 32));
+
+            var panel = new StackPanel { Margin = new Thickness(18) };
+            var row1 = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
+            row1.Children.Add(new TextBlock { Text = "宽度", Width = 50, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center });
+            widthBox = new TextBox { Text = width.ToString(), Width = 150 };
+            row1.Children.Add(widthBox);
+
+            var row2 = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 16) };
+            row2.Children.Add(new TextBlock { Text = "高度", Width = 50, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center });
+            heightBox = new TextBox { Text = height.ToString(), Width = 150 };
+            row2.Children.Add(heightBox);
+
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            var ok = new Button { Content = "确定", Width = 72, Margin = new Thickness(0, 0, 8, 0) };
+            ok.Click += delegate
+            {
+                int w, h;
+                if (!int.TryParse(widthBox.Text, out w) || w < 1) { MessageBox.Show(this, "宽度无效"); return; }
+                if (!int.TryParse(heightBox.Text, out h) || h < 1) { MessageBox.Show(this, "高度无效"); return; }
+                if (w > 20000 || h > 20000) { MessageBox.Show(this, "尺寸过大"); return; }
+                TargetWidth = w;
+                TargetHeight = h;
+                DialogResult = true;
+            };
+            var cancel = new Button { Content = "取消", Width = 72, IsCancel = true };
+            buttons.Children.Add(ok);
+            buttons.Children.Add(cancel);
+
+            panel.Children.Add(row1);
+            panel.Children.Add(row2);
+            panel.Children.Add(buttons);
+            Content = panel;
         }
     }
 }
