@@ -102,9 +102,9 @@ namespace IslandShot
             ShowInTaskbar = false;
             Topmost = true;
 #if OUTSIDE_CLICK_TEST
-            Title = "Capsule image Pro TEST";
+            Title = "万象岛 Pro TEST";
 #else
-            Title = "Capsule image Pro";
+            Title = "万象岛 Pro";
 #endif
             AllowDrop = true;
 
@@ -183,7 +183,7 @@ namespace IslandShot
 
             // 托盘图标先不挂，等窗口真正显示出来（Loaded）再挂：
             // 登录自启动时资源管理器可能还没准备好，太早调用 Shell_NotifyIcon 会失败。
-            tray = new Forms.NotifyIcon { Icon = LoadApplicationIcon(), Text = "Capsule image Pro", Visible = false };
+            tray = new Forms.NotifyIcon { Icon = LoadApplicationIcon(), Text = "万象岛 Pro", Visible = false };
             tray.MouseUp += delegate(object sender, Forms.MouseEventArgs e)
             {
                 if (e.Button == Forms.MouseButtons.Right) ShowTrayMenu();
@@ -222,7 +222,7 @@ namespace IslandShot
                 // 顺手清掉旧版本留下的“最高权限”计划任务（普通权限下自启动就够了）。
                 var cleanup = new Thread(delegate() { RuntimeAccess.RemoveLegacyStartupTask(); });
                 cleanup.IsBackground = true;
-                cleanup.Name = "CapsuleImagePro.LegacyStartupCleanup";
+                cleanup.Name = "MyriadIslePro.LegacyStartupCleanup";
                 cleanup.Start();
             };
             Closed += delegate
@@ -236,12 +236,20 @@ namespace IslandShot
                 }
                 if (source != null) source.RemoveHook(WndProc);
                 if (recorder != null && recorder.Recording) recorder.Stop();
+                if (musicWebStageWindow != null) { try { musicWebStageWindow.Close(); } catch (Exception) { } }
+                if (musicStageWindow != null) { try { musicStageWindow.Close(); } catch (Exception) { } }
                 if (tray != null) { tray.Visible = false; tray.Dispose(); }
             };
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 MusicDebug("esc key=" + e.Key + " expanded=" + expanded + " music=" + musicVisible + " ai=" + aiVisible);
                 if (e.Key != Key.Escape) return;
+                if (musicStageWindow != null || musicWebStageWindow != null)
+                {
+                    CloseMusicStage();
+                    e.Handled = true;
+                    return;
+                }
                 if (aiVisible)
                 {
                     if (AiPickMode) { CancelAiPick(); e.Handled = true; return; }
@@ -725,7 +733,7 @@ namespace IslandShot
                     new Point(0, 0), new Point(0, 1)),
                 Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 4, Opacity = 0.38 },
                 Cursor = Cursors.Hand,
-                ToolTip = "打开 Capsule image Pro"
+                ToolTip = "打开 万象岛 Pro"
             };
             return DecorateCapsule(built);
         }
@@ -1140,7 +1148,7 @@ namespace IslandShot
             catch (Exception exception)
             {
                 DragNative.Log("video open failed: " + exception.Message);
-                MessageBox.Show("无法打开视频：" + exception.Message, "Capsule image Pro", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("无法打开视频：" + exception.Message, "万象岛 Pro", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -1441,7 +1449,7 @@ namespace IslandShot
             return false;
         }
 
-        // 原先为了让 Pro 版和标准版 Capsule image 同时运行不重叠，默认向右错开 150。
+        // 原先为了让 Pro 版和标准版 万象岛 同时运行不重叠，默认向右错开 150。
         // 用户要求胶囊/面板居中，改成 0；以后需要并排运行再调回 150。
         const double CapsuleOffsetX = 0;
 
@@ -1892,13 +1900,13 @@ namespace IslandShot
             if (RuntimeAccess.IsLow)
             {
                 ShowBalloon(8000, "拖放被 Windows 阻止",
-                    "当前是低权限（沙箱）环境，系统不允许把图片拖到微信、资源管理器等普通程序。\n请双击「启动 Capsule image Pro.cmd」以普通用户身份重新打开（不需要管理员）。",
+                    "当前是低权限（沙箱）环境，系统不允许把图片拖到微信、资源管理器等普通程序。\n请双击「启动 万象岛 Pro.cmd」以普通用户身份重新打开（不需要管理员）。",
                     Forms.ToolTipIcon.Warning);
             }
             else if (RuntimeAccess.IsElevated)
             {
                 ShowBalloon(8000, "拖放被 Windows 阻止",
-                    "Capsule image Pro 正以管理员身份运行，而目标程序是普通权限，Windows 不允许从高权限拖到低权限。\n请在托盘菜单选择「以普通权限重新启动」。",
+                    "万象岛 Pro 正以管理员身份运行，而目标程序是普通权限，Windows 不允许从高权限拖到低权限。\n请在托盘菜单选择「以普通权限重新启动」。",
                     Forms.ToolTipIcon.Warning);
             }
         }
@@ -2011,7 +2019,7 @@ namespace IslandShot
         }
 
         // 开机自启动走 HKCU\...\Run：普通用户权限启动，不弹 UAC，也不依赖计划任务。
-        const string StartupValueName = "CapsuleImagePro";
+        const string StartupValueName = "MyriadIslePro";
         const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
         bool StartupEnabled()
@@ -2349,7 +2357,7 @@ namespace IslandShot
             }
             catch (Exception ex)
             {
-                try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "CapsuleImagePro-region.log"), ex + Environment.NewLine); } catch (Exception) { }
+                try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "MyriadIslePro-region.log"), ex + Environment.NewLine); } catch (Exception) { }
             }
             finally
             {
@@ -2436,7 +2444,7 @@ namespace IslandShot
                 {
                     if (module.ModuleName != null && module.ModuleName.StartsWith("GPP", StringComparison.OrdinalIgnoreCase))
                     {
-                        tray.ShowBalloonTip(8000, "检测到游戏加加覆盖层", "请从托盘退出游戏加加后再使用 Capsule image Pro。", Forms.ToolTipIcon.Warning);
+                        tray.ShowBalloonTip(8000, "检测到游戏加加覆盖层", "请从托盘退出游戏加加后再使用 万象岛 Pro。", Forms.ToolTipIcon.Warning);
                         break;
                     }
                 }

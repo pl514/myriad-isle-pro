@@ -24,7 +24,7 @@ cd E:\yingyong\deepseekgongzuoqv\IslandShot-pro
 .\Build.ps1
 
 # 运行
-.\build\Capsule image Pro.exe
+.\build\MyriadIslePro.exe
 ```
 
 - 编译器是 `%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe`，**C# 5**。
@@ -426,8 +426,8 @@ s20261106191734|deepseek|https://chat.deepseek.com/a/chat/s/443fdc4b-...
 | 文件 | 内容 |
 |---|---|
 | `build\webdriver.log` | 网页版每次请求：站点、快照长度、发送结果、每次轮询拿到的字数、停止动作 |
-| `%TEMP%\Low\CapsuleImagePro-boot.log` | 启动流程 |
-| `build\CapsuleImagePro-error.log` | HTTP 失败、重试、异常链 |
+| `%TEMP%\Low\MyriadIslePro-boot.log` | 启动流程 |
+| `build\MyriadIslePro-error.log` | HTTP 失败、重试、异常链 |
 | `E:\deepseek1\aiweb-probe\FINDINGS.md` | 网页版探针的原始实测记录（项目外，参考用） |
 
 网页版出问题的第一诊断步骤：看 `webdriver.log` 里

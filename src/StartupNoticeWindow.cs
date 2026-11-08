@@ -19,7 +19,7 @@ namespace IslandShot
 
         public StartupNoticeWindow()
         {
-            Title = "Capsule image Pro";
+            Title = "万象岛 Pro";
             Width = 442;
             SizeToContent = SizeToContent.Height;
             WindowStyle = WindowStyle.None;
@@ -35,7 +35,7 @@ namespace IslandShot
 
             panel.Children.Add(new TextBlock
             {
-                Text = "Capsule image Pro 被系统以低权限启动了",
+                Text = "万象岛 Pro 被系统以低权限启动了",
                 FontSize = 15,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(Color.FromRgb(238, 242, 248))
@@ -53,8 +53,8 @@ namespace IslandShot
                     "  · 托盘图标加不进去（Shell_NotifyIcon 直接被拒绝）" + Environment.NewLine +
                     "  · 图片拖不进微信、资源管理器等普通程序（松手后 effect=0）" + Environment.NewLine + Environment.NewLine +
                     "不需要管理员，只要用普通用户身份启动就行：" + Environment.NewLine +
-                    "  · 双击项目里的「启动 Capsule image Pro.cmd」" + Environment.NewLine +
-                    "  · 或者直接双击 build\\Capsule image Pro.exe" + Environment.NewLine + Environment.NewLine +
+                    "  · 双击项目里的「启动 万象岛 Pro.cmd」" + Environment.NewLine +
+                    "  · 或者直接双击 build\\MyriadIslePro.exe" + Environment.NewLine + Environment.NewLine +
                     "如果是从终端或自动化工具里启动的，那个环境本身就是低权限，" + Environment.NewLine +
                     "请改成在桌面上双击启动（这样就是普通用户权限）。"
             });

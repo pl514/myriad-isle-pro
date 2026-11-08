@@ -115,7 +115,7 @@ namespace IslandShot
         {
             try
             {
-                File.AppendAllText(Path.Combine(Path.GetTempPath(), "CapsuleImagePro-drag.log"),
+                File.AppendAllText(Path.Combine(Path.GetTempPath(), "MyriadIslePro-drag.log"),
                     DateTime.Now.ToString("HH:mm:ss.fff ") + message + Environment.NewLine);
             }
             catch (Exception) { }

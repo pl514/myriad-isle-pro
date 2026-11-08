@@ -50,7 +50,7 @@ namespace IslandShot
             header.Children.Add(logo);
             header.Children.Add(new TextBlock
             {
-                Text = "Capsule image Pro",
+                Text = "万象岛 Pro",
                 FontSize = 15,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(Color.FromRgb(38, 49, 63)),
@@ -74,7 +74,7 @@ namespace IslandShot
             panel.Children.Add(Separator());
             panel.Children.Add(Row("以普通权限重新启动", "↻", "", false, delegate { Close(); restart(); }));
             panel.Children.Add(Separator());
-            panel.Children.Add(Row("退出 Capsule image Pro", "⏻", "", false, delegate { Close(); exit(); }));
+            panel.Children.Add(Row("退出 万象岛 Pro", "⏻", "", false, delegate { Close(); exit(); }));
 
             // 权限状态：普通用户就已经够用，这里是给用户一个确定的答案。
             panel.Children.Add(new TextBlock

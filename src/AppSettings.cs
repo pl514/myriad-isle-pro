@@ -75,7 +75,7 @@ namespace IslandShot
                 var keys = new List<string>(values.Keys);
                 keys.Sort(StringComparer.OrdinalIgnoreCase);
                 var lines = new List<string>();
-                lines.Add("# Capsule image Pro 配置（一行一个 key=value）");
+                lines.Add("# 万象岛 Pro 配置（一行一个 key=value）");
                 lines.Add("# EyesEnabled：卡通眼睛开关，1=开 0=关");
                 foreach (string key in keys) lines.Add(key + "=" + values[key]);
                 File.WriteAllLines(filePath, lines.ToArray(), new UTF8Encoding(false));

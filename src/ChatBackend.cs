@@ -20,7 +20,7 @@ namespace IslandShot
     // 假后端：把一段写死的文本按 20~40ms 一批的节奏吐出来，验证流式渲染和动画。
     internal sealed class FakeBackend : IChatBackend
     {
-        const string Answer = @"你好，我是 Capsule image Pro 里的 AI 面板。
+        const string Answer = @"你好，我是 万象岛 Pro 里的 AI 面板。
 现在是假后端，所以这段话是写死的，只用来验证三件事：
 1. 面板能不能从胶囊形变展开；
 2. 文字能不能一批一批地流出来；

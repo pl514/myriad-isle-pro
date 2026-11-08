@@ -19,3 +19,6 @@ Thumbs.db
 desktop.ini
 .vs/
 *.usersnapshot/
+
+# ---- 功能截图（体积大，不进版本库）----
+docs/music/*.png

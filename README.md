@@ -1,10 +1,10 @@
-# Capsule image Pro
+# 万象岛 Pro · Myriad Isle Pro
 
-独立胶囊截图/图片工具。当前主程序源码在 `src`，构建产物固定为 `build\Capsule image Pro.exe`。
+英文名 **Myriad Isle**。独立胶囊截图/图片工具。当前主程序源码在 `src`，构建产物固定为 `build\MyriadIslePro.exe`。
 
 ## 运行
 
-双击 `启动 Capsule image Pro.cmd`，或直接双击 `build\Capsule image Pro.exe`。
+双击 `启动万象岛 Pro.cmd`，或直接双击 `build\MyriadIslePro.exe`。
 **用普通用户身份运行即可，不要选「以管理员身份运行」。**
 
 开机自启动在托盘菜单里开关（写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，
@@ -29,16 +29,16 @@ schtasks /Delete /TN "CapsuleImagePro" /F
 
 > 只是想临时用一次也可以不删：登录后先在托盘右键退出那个管理员实例，再双击本副本即可。
 
-## 与标准版 Capsule image 共存
+## 与标准版 万象岛 共存
 
 这一版是独立的第二个应用，可以和标准版同时运行：
 
 | 项目 | 标准版 | Pro 版 |
 | --- | --- | --- |
-| 进程名 | `Capsule image.exe` | `Capsule image Pro.exe` |
-| 单实例互斥体 | `IslandShot.SingleInstance` | `CapsuleImagePro.SingleInstance` |
+| 进程名 | `MyriadIsle.exe` | `MyriadIslePro.exe` |
+| 单实例互斥体 | `IslandShot.SingleInstance` | `MyriadIslePro.SingleInstance` |
 | 默认快捷键 | `Ctrl+Alt+Space` 等 | `Ctrl+Alt+Shift+Space` 等 |
-| 开机自启动 Run 值 | `CapsuleImage` | `CapsuleImagePro` |
+| 开机自启动 Run 值 | `CapsuleImage` | `MyriadIslePro` |
 | 数据目录 | `build\data`（各自独立） | `build\data`（各自独立） |
 | 胶囊位置 | 屏幕顶部正中 | 顶部正中向右 150px |
 
@@ -91,6 +91,11 @@ GamePP 会把 `GPP64.dll` 注入到 IslandShot。Windows 事件记录显示崩�
 - 卡片右键菜单 `从胶囊移除`。
 - 托盘图标：双击打开/收起，右键打开/退出。
 - 导入的图片会复制到 `build\data\images\`，路径保存在 `build\data\images.txt`，重启后自动恢复。
+- 音乐面板「投射到桌面」：**当前构建打开 WebView2 网页舞台**，18 种歌词样式（商籁 / 凝彩 / 绘光 / 花火 / 町景 / 雾笺 / 流光 / 心象 / 云阶 / 浮名 / 倾述 / 思索 / 清 / 时计 / 群唱 / 回环 / 莫奈 / 镜台）和完整样式面板；
+     「背景」页有透明背景（用桌面壁纸模拟，真正逐像素透明需要 Electron 壳）；WPF 的 18 样式保留为 WebView2 初始化失败时的回退。
+  商籁已按 Folia 录屏改成浅灰纸 + 居中衬线/大衬线引文/竖排诗三版式；花火已按录屏/实机预览拆成「虚线圆 / 徽章卡 / 竖排幽灵 / 双飘带卡 / 竖向胶囊条 / 电影卡片」六种构图，按句轮换；每种构图用不同的字体（Yu Mincho / Yu Gothic / Georgia / Palatino / Arial Narrow / 楷体），其余样式暂时保持上一版。
+  `Esc` 或底栏 `×` 收回。说明见 [`docs\音乐面板-交接包.md`](docs/音乐面板-交接包.md) §23/§24/§25/§26/§27。
+- 播放不了的歌（没版权、取不到地址、MediaPlayer 打不开）会**自动跳到下一首**。
 
 ## 新增：系统原生跨应用拖拽导出
 
@@ -109,7 +114,7 @@ GamePP 会把 `GPP64.dll` 注入到 IslandShot。Windows 事件记录显示崩�
   远程桌面里由受控进程拉起）启动的，`Shell_NotifyIcon` 会被静默拒绝 —— 表现为
   **托盘图标不出现**；拖放也会 `effect=0` —— 表现为**怎么都放不进微信**。
   这种情况下程序会弹一个不依赖托盘的说明窗，照提示在桌面上双击
-  `启动 Capsule image Pro.cmd` 即可。反向同理：以管理员运行时，拖到同样以管理员运行
+  `启动 万象岛 Pro.cmd` 即可。反向同理：以管理员运行时，拖到同样以管理员运行
   的目标程序也会被拦，所以普通权限才是最省事的用法。
 
 ### 两套手势分开
@@ -153,7 +158,7 @@ Start-Process .\test\DropProbe.exe
 完整验收项见 [`docs\验收清单.md`](docs/验收清单.md)，实现细节见
 [`docs\技术实现说明.md`](docs/技术实现说明.md)。
 
-拖拽诊断日志：`%TEMP%\CapsuleImagePro-drag.log`（记录拖拽开始/结束、effect 与失败原因）。
+拖拽诊断日志：`%TEMP%\MyriadIslePro-drag.log`（记录拖拽开始/结束、effect 与失败原因）。
 
 ## 下一阶段
 
@@ -176,6 +181,21 @@ Start-Process .\test\DropProbe.exe
 
 节奏、缓动、实现细节和验证方法见 [`docs\动效说明.md`](docs/动效说明.md)。
 
+## 收起胶囊 = 自动休眠（普通权限即可）
+
+按「显示 / 收起」热键（或托盘菜单里的「显示 / 收起」）把胶囊收起来后，程序会：
+
+- 停掉胶囊的呼吸光晕、高光扫过、眨眼等无限动画（渲染线程不再出帧，CPU 归零）；
+- 把卡片缩略图、AI 聊天气泡的视觉树从内存里卸掉（文件路径和聊天文字仍保留）；
+- 强制 GC（含大对象堆整理）后调用 `EmptyWorkingSet`，把工作集页还给系统。
+
+实测（.NET Framework 4.8 / WPF）：收起后任务管理器「内存」从 30~70 MB 降到 **2~3 MB**，
+CPU 0%；再次按热键显示胶囊立刻恢复，缩略图和聊天记录在展开面板时按需重绘。
+
+这套逻辑只用当前进程自己的句柄（`psapi!EmptyWorkingSet` / `SetProcessWorkingSetSize`），
+**不需要管理员权限**：普通用户双击启动即可，且不会改变托盘、拖拽、热键的行为。
+实现见 [`src\IslandWindow.Sleep.cs`](src/IslandWindow.Sleep.cs)。
+
 ## 来源与许可
 
 本项目在产品和交互设计上参考了 PicRope（图绳）：
@@ -189,3 +209,26 @@ PicRope 的 MIT 许可全文见 [`licenses\PicRope-MIT.txt`](licenses/PicRope-MI
 
 本项目使用独立名称、独立图标和独立 WPF 实现；没有使用 PicRope 的
 Filerobot 编辑器、WebView2 容器或图标素材。
+
+## 许可
+
+本项目以 **MIT** 许可开源，完整文本见 [`LICENSE`](LICENSE)。
+
+简单说：你可以自由使用、修改、再发布，甚至用在商业项目里，
+只需要保留版权声明和许可文本。但**名称和图标不在授权范围内**——
+衍生发布请换自己的名字和图标，避免和本项目混淆。
+
+第三方组件（Electron/WebView2/PicRope 等）的声明见 [`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt)。
+
+
+
+
+## 合规与免责
+
+音乐面板（QQ 音乐 / 酷狗 / 网易云 / 汽水）的接口实现是独立重写，只参考了
+开源项目公开的协议事实，没有复制它们的源码。项目不包含、不分发任何音乐内容、
+音源或解密密钥，也不绕过付费/加密（无明文音源就跳过）。请用自己已登录的账号、
+遵守各平台服务条款使用；与各平台无关联，商标归各自权利人。
+
+- 第三方来源与许可证：`THIRD-PARTY-NOTICES.txt`（第五、六节）
+- 许可证全文：`licenses/kugoumusicapi-MIT.txt`、`licenses/qishui-music-api-MIT.txt`、`licenses/qq-music-api-MIT.txt`

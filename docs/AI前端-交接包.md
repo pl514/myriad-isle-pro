@@ -1,4 +1,4 @@
-# 交接包：Capsule image Pro —— AI 面板（第一阶段：只做前端）
+# 交接包：万象岛 Pro —— AI 面板（第一阶段：只做前端）
 
 > 写于 2026-11-05。**v2**：对着真实源码复核，补齐 9 处必踩的细节（§9）。
 > **v3（同日，按用户手绘批注）**：面板多了三块——**顶栏两个网页版 AI 球 / 左侧会话栏 / 底栏模型 chip 弹层**，
@@ -30,7 +30,7 @@
 |---|---|
 | 源码 | `E:\yingyong\deepseekgongzuoqv\IslandShot-pro\src\*.cs` |
 | 构建 | `Build.ps1`（csc，.NET Framework 4.8，无 csproj / 无 NuGet） |
-| 产物 | `build\Capsule image Pro.exe`（+ 3 个 WebView2 DLL，抖音用） |
+| 产物 | `build\MyriadIslePro.exe`（+ 3 个 WebView2 DLL，抖音用） |
 | 三球工具坞 | ✅ 已做：[IslandWindow.Orbs.cs](E:/yingyong/deepseekgongzuoqv/IslandShot-pro/src/IslandWindow.Orbs.cs) |
 | 抖音小窗 | ✅ 已做：`DouyinPlayerWindow.cs` + `IslandWindow.Douyin.cs` + `MorphShellWindow.cs` |
 | 热键系统 | ✅ `Hotkeys.cs`（数据驱动，设置面板自动列出）；抖音开关默认 `Ctrl+Alt+Shift+D` |
@@ -382,7 +382,7 @@ internal sealed class ChatSession
 | **用 WPF `Popup` 做 chip 弹层** | Popup 是独立 HWND，在 `AllowsTransparency` 的分层窗口里会跑到所有窗口最上层、位置也容易跟丢。用面板内的 `Grid` 叠层 |
 | **弹层里点一下面板就收了** | 弹层必须算"面板内"，且点击判定要"先关弹层、不关面板"（§9 P10） |
 | **`Motion.ColorTo` 静默不生效** | 它遇到冻结画笔直接 `return`（[Motion.cs:223](E:/yingyong/deepseekgongzuoqv/IslandShot-pro/src/Motion.cs#L223)）。选中态直接用新画笔赋值 |
-| **`XamlReader.Parse` 的模板漏 `xmlns:x`** | 只要用了 `x:Name`，就必须带 `xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'`，否则在构造函数里抛 `XamlParseException` → **双击后进程秒退、什么都看不到**。排查方法：读 `%TEMP%\Low\CapsuleImagePro-boot.log`（Program.Boot 会记 `constructing window` → `window shown`，崩了就只有 `APP DOMAIN EX`） |
+| **`XamlReader.Parse` 的模板漏 `xmlns:x`** | 只要用了 `x:Name`，就必须带 `xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'`，否则在构造函数里抛 `XamlParseException` → **双击后进程秒退、什么都看不到**。排查方法：读 `%TEMP%\Low\MyriadIslePro-boot.log`（Program.Boot 会记 `constructing window` → `window shown`，崩了就只有 `APP DOMAIN EX`） |
 
 ---
 
@@ -793,7 +793,7 @@ void HideAiSurface()
 & "E:\yingyong\deepseekgongzuoqv\IslandShot-pro\Build.ps1"
 
 # 跑
-start "E:\yingyong\deepseekgongzuoqv\IslandShot-pro\build\Capsule image Pro.exe"
+start "E:\yingyong\deepseekgongzuoqv\IslandShot-pro\build\MyriadIslePro.exe"
 ```
 
 - 编译只用系统自带 `csc.exe`，**不要引入 NuGet / csproj**；

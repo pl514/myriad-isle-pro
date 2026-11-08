@@ -44,7 +44,7 @@ namespace IslandShot
         // 启动/退出轨迹。任何异常都吞掉，绝不影响主流程。
         internal static void Boot(string text)
         {
-            Append("CapsuleImagePro-boot.log", text);
+            Append("MyriadIslePro-boot.log", text);
         }
 
         internal static void Append(string fileName, string text)
@@ -92,10 +92,10 @@ namespace IslandShot
                     if (!quietStartup)
                     {
                         System.Windows.MessageBox.Show(
-                            "已经有一个以管理员权限运行的 Capsule image Pro 在运行。\n\n" +
-                            "请先右键托盘图标退出它（或在任务管理器里结束 “Capsule image Pro.exe”），" +
-                            "然后再双击「启动 Capsule image Pro.cmd」以普通权限启动。",
-                            "Capsule image Pro",
+                            "已经有一个以管理员权限运行的 万象岛 Pro 在运行。\n\n" +
+                            "请先右键托盘图标退出它（或在任务管理器里结束 “MyriadIslePro.exe”），" +
+                            "然后再双击「启动 万象岛 Pro.cmd」以普通权限启动。",
+                            "万象岛 Pro",
                             System.Windows.MessageBoxButton.OK,
                             System.Windows.MessageBoxImage.Information);
                     }
@@ -132,9 +132,9 @@ namespace IslandShot
         {
             WaitForShell();
 #if OUTSIDE_CLICK_TEST
-            const string mutexName = "CapsuleImagePro.OutsideClickTest.SingleInstance";
+            const string mutexName = "MyriadIslePro.OutsideClickTest.SingleInstance";
 #else
-            const string mutexName = "CapsuleImagePro.SingleInstance";
+            const string mutexName = "MyriadIslePro.SingleInstance";
 #endif
             bool created;
             Mutex mutex = AcquireInstance(mutexName, out created, 2500);
@@ -147,7 +147,7 @@ namespace IslandShot
                 app.DispatcherUnhandledException += delegate(object s, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
                 {
                     Boot("DISPATCHER EX: " + e.Exception);
-                    Append("CapsuleImagePro-error.log", e.Exception.ToString());
+                    Append("MyriadIslePro-error.log", e.Exception.ToString());
                     e.Handled = true;
                 };
                 Boot("constructing window");

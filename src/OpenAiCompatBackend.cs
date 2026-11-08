@@ -114,7 +114,7 @@ namespace IslandShot
                     bool retryable = lastStatus == 429 || lastStatus == 502 || lastStatus == 503 || lastStatus == 504;
                     if (retryable && attempt < 3)
                     {
-                        Program.Append("CapsuleImagePro-error.log",
+                        Program.Append("MyriadIslePro-error.log",
                             "retry #" + attempt + " status=" + lastStatus + " " + lastBody);
                         // 智谱的 1302 是账户级速率限制，退避要够长才有意义（1.5s → 3.5s）
                         await Task.Delay(attempt == 1 ? 1500 : 3500, token);
@@ -271,7 +271,7 @@ namespace IslandShot
                 || endpoint.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) >= 0;
 
             string detail = Describe(exception);
-            Program.Append("CapsuleImagePro-error.log", "HTTP FAIL endpoint=" + endpoint + " \n" + detail);
+            Program.Append("MyriadIslePro-error.log", "HTTP FAIL endpoint=" + endpoint + " \n" + detail);
 
             if (local)
             {

@@ -1,4 +1,4 @@
-# 交接包：Capsule image Pro —— 网页版驱动（WebBackend，实验功能）
+# 交接包：万象岛 Pro —— 网页版驱动（WebBackend，实验功能）
 
 > 写于 2026-11-06。前置阅读：`docs/AI前端-交接包.md`、`docs/AI后端-交接包.md`。
 >
