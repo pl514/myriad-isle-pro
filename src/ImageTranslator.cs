@@ -16,6 +16,17 @@ namespace IslandShot
         public string Target;
     }
 
+    internal sealed class ImageTranslationProgress
+    {
+        public string ImagePath;
+        public int Done;
+        public int Total;
+        public double X;
+        public double Y;
+        public double Width;
+        public double Height;
+    }
+
     internal sealed class ImageTranslationResult
     {
         public string OutputPath;
@@ -32,6 +43,11 @@ namespace IslandShot
         const int ChunkSize = 5;          // 每 5 行拼成一次请求
 
         public static ImageTranslationResult Translate(string imagePath, Action<string> status)
+        {
+            return Translate(imagePath, status, null);
+        }
+
+        public static ImageTranslationResult Translate(string imagePath, Action<string> status, Action<ImageTranslationProgress> progress)
         {
             var result = new ImageTranslationResult();
             if (status != null) status("正在识别文字…");
@@ -93,10 +109,31 @@ namespace IslandShot
             {
                 status("正在翻译 " + targets.Count + " 行（" + (pair == "en|zh-CN" ? "外文 → 中文" : "中文 → 英文") + "）…");
             }
-            var translations = TranslateLines(targets, pair, status);
+            string partialPath = BuildOutputPath(imagePath);
+            var translations = TranslateLines(targets, pair, status, delegate(List<string> soFar, int done)
+            {
+                if (progress == null || done <= 0) return;
+                try
+                {
+                    RenderInto(imagePath, targets, soFar, partialPath, soFar.Count);
+                    OcrLineInfo last = targets[Math.Max(0, Math.Min(done, targets.Count) - 1)];
+                    progress(new ImageTranslationProgress
+                    {
+                        ImagePath = partialPath,
+                        Done = done,
+                        Total = targets.Count,
+                        X = last.X,
+                        Y = last.Y,
+                        Width = last.Width,
+                        Height = last.Height
+                    });
+                }
+                catch (Exception) { }
+            });
 
             if (status != null) status("正在生成图片…");
-            string output = Render(imagePath, targets, translations, result);
+            RenderInto(imagePath, targets, translations, partialPath, translations.Count);
+            string output = partialPath;
             result.OutputPath = output;
             result.TranslatedCount = translations.Count;
 
@@ -117,7 +154,8 @@ namespace IslandShot
             return false;
         }
 
-        static List<string> TranslateLines(List<OcrLineInfo> lines, string pair, Action<string> status)
+        static List<string> TranslateLines(List<OcrLineInfo> lines, string pair, Action<string> status,
+            Action<List<string>, int> onProgress)
         {
             var results = new List<string>();
             int index = 0;
@@ -161,12 +199,25 @@ namespace IslandShot
 
                 index += count;
                 if (status != null) status("已翻译 " + Math.Min(index, lines.Count) + " / " + lines.Count + " 行…");
+                if (onProgress != null)
+                {
+                    try { onProgress(results, Math.Min(index, lines.Count)); }
+                    catch (Exception) { }
+                }
                 Thread.Sleep(120);
             }
             return results;
         }
 
-        static string Render(string imagePath, List<OcrLineInfo> lines, List<string> translations, ImageTranslationResult result)
+        static string BuildOutputPath(string imagePath)
+        {
+            string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "translate-img");
+            if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+            return Path.Combine(folder, Path.GetFileNameWithoutExtension(imagePath) + "-译-" + DateTime.Now.ToString("HHmmss") + ".png");
+        }
+
+        // 把前 limit 行已经翻好的内容画到 outputPath（每批调用一次，实现"逐行冲刷"的动画）
+        static void RenderInto(string imagePath, List<OcrLineInfo> lines, List<string> translations, string outputPath, int limit)
         {
             using (var bitmap = new Bitmap(imagePath))
             using (var graphics = Graphics.FromImage(bitmap))
@@ -174,7 +225,8 @@ namespace IslandShot
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
-                for (int i = 0; i < lines.Count && i < translations.Count; i++)
+                int count = Math.Min(Math.Min(limit, lines.Count), translations.Count);
+                for (int i = 0; i < count; i++)
                 {
                     OcrLineInfo line = lines[i];
                     var rect = new Rectangle(
@@ -194,15 +246,9 @@ namespace IslandShot
                     DrawFittedText(graphics, translations[i], rect, textColor);
                 }
 
-                string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "translate-img");
-                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
-                string output = Path.Combine(folder,
-                    Path.GetFileNameWithoutExtension(imagePath) + "-译-" + DateTime.Now.ToString("HHmmss") + ".png");
-                bitmap.Save(output, ImageFormat.Png);
-                return output;
+                bitmap.Save(outputPath, ImageFormat.Png);
             }
         }
-
         // 取矩形四周一圈像素里出现最多的颜色，作为要擦除区域的底色
         static Color SampleBackground(Bitmap bitmap, Rectangle rect)
         {
