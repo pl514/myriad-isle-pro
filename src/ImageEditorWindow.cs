@@ -208,19 +208,20 @@ namespace IslandShot
             toolRow.Children.Clear();
             toolButtons.Clear();
 
-            AddTool(EditorTool.Select, "选择", "M2,2 L2,15 L6,11 L9,16 L11,15 L8,10 L14,10 Z", true);
-            AddTool(EditorTool.Rect, "矩形", "M2,4 H14 V12 H2 Z", true);
-            AddTool(EditorTool.Ellipse, "椭圆", "M2,8 A6,4 0 1 0 14,8 A6,4 0 1 0 2,8", true);
-            AddTool(EditorTool.Line, "直线", "M3,13 L13,3", false);
-            AddTool(EditorTool.Arrow, "箭头", "M3,13 L13,3 M8,3 H13 V8", false);
-            AddTool(EditorTool.Pen, "画笔", "M3,13 C5,8 8,11 10,6 C11,4 12,3 13,2", false);
-            AddTool(EditorTool.Highlight, "高亮", "M4,10 H12 V13 H4 Z M6,3 H13 V9 H6 Z", true);
-            AddTool(EditorTool.Text, "文字", "M4,4 H12 M8,4 V13", false);
-            AddTool(EditorTool.Bubble, "气泡", "M3,4 H13 V10 H7 L5,13 V10 H3 Z", true);
-            AddTool(EditorTool.Step, "步骤", "M8,2 A6,6 0 1 1 7.9,2", true);
-            AddTool(EditorTool.Blur, "模糊", "M3,8 C5,4 9,4 11,8 C9,12 5,12 3,8", true);
-            AddTool(EditorTool.Pixelate, "马赛克", "M3,3 H7 V7 H3 Z M9,3 H13 V7 H9 Z M3,9 H7 V13 H3 Z M9,9 H13 V13 H9 Z", true);
-            AddTool(EditorTool.Crop, "裁剪", "M5,2 V13 H16 M2,5 H13 V16", false);
+            AddTool(EditorTool.Pan, "移动画布 (1)", "M8,2 V14 M2,8 H14 M5,5 L8,2 L11,5 M5,11 L8,14 L11,11 M5,5 L2,8 L5,11 M11,5 L14,8 L11,11", false);
+            AddTool(EditorTool.Select, "选择 (V)", "M2,2 L2,15 L6,11 L9,16 L11,15 L8,10 L14,10 Z", true);
+            AddTool(EditorTool.Pen, "画笔 (2)", "M3,13 C5,8 8,11 10,6 C11,4 12,3 13,2", false);
+            AddTool(EditorTool.Rect, "矩形 (3)", "M2,4 H14 V12 H2 Z", true);
+            AddTool(EditorTool.Ellipse, "椭圆 (4)", "M2,8 A6,4 0 1 0 14,8 A6,4 0 1 0 2,8", true);
+            AddTool(EditorTool.Line, "直线 (5)", "M3,13 L13,3", false);
+            AddTool(EditorTool.Arrow, "箭头 (6)", "M3,13 L13,3 M8,3 H13 V8", false);
+            AddTool(EditorTool.Highlight, "高亮 (7)", "M4,10 H12 V13 H4 Z M6,3 H13 V9 H6 Z", true);
+            AddTool(EditorTool.Text, "文字 (8)", "M4,4 H12 M8,4 V13", false);
+            AddTool(EditorTool.Bubble, "气泡 (9)", "M3,4 H13 V10 H7 L5,13 V10 H3 Z", true);
+            AddTool(EditorTool.Step, "步骤 (0)", "M8,2 A6,6 0 1 1 7.9,2", true);
+            AddTool(EditorTool.Blur, "模糊 (-)", "M3,8 C5,4 9,4 11,8 C9,12 5,12 3,8", true);
+            AddTool(EditorTool.Pixelate, "马赛克 (=)", "M3,3 H7 V7 H3 Z M9,3 H13 V7 H9 Z M3,9 H7 V13 H3 Z M9,9 H13 V13 H9 Z", true);
+            AddTool(EditorTool.Crop, "裁剪 (C)", "M5,2 V13 H16 M2,5 H13 V16", false);
             AddTool(EditorTool.Pan, "移动画布", "M8,2 V14 M2,8 H14 M5,5 L8,2 L11,5 M5,11 L8,14 L11,11 M5,5 L2,8 L5,11 M11,5 L14,8 L11,11", false);
 
             toolRow.Children.Add(Separator());
@@ -313,6 +314,7 @@ namespace IslandShot
             AddColorSwatches(strokeColor, delegate(Color color)
             {
                 strokeColor = color;
+                surface.DefaultStroke = color;      // 关键：新画的对象也用这个颜色
                 ApplyToSelected(delegate(EditorItem item) { item.Stroke = color; });
                 BuildPropertyBar();
             });
@@ -321,12 +323,14 @@ namespace IslandShot
             AddColorSwatches(fillColor, delegate(Color color)
             {
                 fillColor = color;
+                surface.DefaultFill = color;
                 ApplyToSelected(delegate(EditorItem item) { item.Fill = color; });
                 BuildPropertyBar();
             });
             var transparent = BarButton("无", delegate
             {
                 fillColor = Color.FromArgb(0, 0, 0, 0);
+                surface.DefaultFill = fillColor;
                 ApplyToSelected(delegate(EditorItem item) { item.Fill = Color.FromArgb(0, 0, 0, 0); });
             });
             propertyRow.Children.Add(transparent);
@@ -335,6 +339,7 @@ namespace IslandShot
             AddSlider(1, 24, thickness, delegate(double value)
             {
                 thickness = value;
+                surface.DefaultThickness = value;   // 关键：新画的对象也用这个粗细
                 ApplyToSelected(delegate(EditorItem item) { item.Thickness = value; });
             });
 
@@ -342,6 +347,7 @@ namespace IslandShot
             AddSlider(5, 100, opacity * 100, delegate(double value)
             {
                 opacity = value / 100.0;
+                surface.DefaultOpacity = opacity;   // 关键：新画的对象也用这个透明度
                 ApplyToSelected(delegate(EditorItem item) { item.Opacity = opacity; });
             });
 
@@ -352,6 +358,7 @@ namespace IslandShot
                 AddSlider(8, 72, fontSize, delegate(double value)
                 {
                     fontSize = value;
+                    surface.DefaultFontSize = value;
                     TextItem item = surface.Selected as TextItem;
                     if (item != null) { item.FontSize = value; item.Layout(); surface.InvalidateVisual(); }
                 });
@@ -360,13 +367,13 @@ namespace IslandShot
             if (currentTool == EditorTool.Blur)
             {
                 propertyRow.Children.Add(Label("模糊程度", 10));
-                AddSlider(1, 20, blurRadius, delegate(double value) { blurRadius = (int)Math.Round(value); });
+                AddSlider(1, 20, blurRadius, delegate(double value) { blurRadius = (int)Math.Round(value); surface.BlurRadius = blurRadius; });
             }
 
             if (currentTool == EditorTool.Pixelate)
             {
                 propertyRow.Children.Add(Label("马赛克块", 10));
-                AddSlider(2, 40, pixelBlock, delegate(double value) { pixelBlock = (int)Math.Round(value); });
+                AddSlider(2, 40, pixelBlock, delegate(double value) { pixelBlock = (int)Math.Round(value); surface.PixelBlock = pixelBlock; });
             }
 
             if (currentTool == EditorTool.Step)
@@ -700,6 +707,30 @@ namespace IslandShot
         void OnWindowKeyDown(object sender, KeyEventArgs e)
         {
             bool control = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+
+            // 正在输入文字时，所有快捷键让位给输入框
+            if (textInput.IsKeyboardFocusWithin) return;
+
+            if (!control)
+            {
+                switch (e.Key)
+                {
+                    case Key.D1: case Key.NumPad1: SelectTool(EditorTool.Pan); e.Handled = true; return;
+                    case Key.D2: case Key.NumPad2: SelectTool(EditorTool.Pen); e.Handled = true; return;
+                    case Key.D3: case Key.NumPad3: SelectTool(EditorTool.Rect); e.Handled = true; return;
+                    case Key.D4: case Key.NumPad4: SelectTool(EditorTool.Ellipse); e.Handled = true; return;
+                    case Key.D5: case Key.NumPad5: SelectTool(EditorTool.Line); e.Handled = true; return;
+                    case Key.D6: case Key.NumPad6: SelectTool(EditorTool.Arrow); e.Handled = true; return;
+                    case Key.D7: case Key.NumPad7: SelectTool(EditorTool.Highlight); e.Handled = true; return;
+                    case Key.D8: case Key.NumPad8: SelectTool(EditorTool.Text); e.Handled = true; return;
+                    case Key.D9: case Key.NumPad9: SelectTool(EditorTool.Bubble); e.Handled = true; return;
+                    case Key.D0: case Key.NumPad0: SelectTool(EditorTool.Step); e.Handled = true; return;
+                    case Key.OemMinus: SelectTool(EditorTool.Blur); e.Handled = true; return;
+                    case Key.OemPlus: SelectTool(EditorTool.Pixelate); e.Handled = true; return;
+                    case Key.V: SelectTool(EditorTool.Select); e.Handled = true; return;
+                    case Key.C: SelectTool(EditorTool.Crop); e.Handled = true; return;
+                }
+            }
 
             if (control && e.Key == Key.Z) { surface.Undo(); e.Handled = true; return; }
             if (control && e.Key == Key.Y) { surface.Redo(); e.Handled = true; return; }
