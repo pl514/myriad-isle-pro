@@ -10,6 +10,7 @@ using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Forms = System.Windows.Forms;
 using System.Windows.Threading;
 
 namespace IslandShot
@@ -297,15 +298,38 @@ namespace IslandShot
             Grid.SetRow(imageHead, 0);
             imageLayer.Children.Add(imageHead);
 
-            translatePreview = new Image { Stretch = Stretch.Uniform, Margin = new Thickness(0, 8, 0, 8) };
+            translatePreview = new Image { Stretch = Stretch.Uniform, Margin = new Thickness(6) };
             var previewHost = new Border
             {
                 CornerRadius = new CornerRadius(10),
                 Background = new SolidColorBrush(Color.FromRgb(25, 21, 34)),
                 BorderBrush = new SolidColorBrush(TrLine),
                 BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand,
+                ToolTip = "单击放大预览 · 右键可保存",
                 Child = translatePreview
             };
+            previewHost.MouseLeftButtonUp += delegate
+            {
+                if (string.IsNullOrEmpty(translateImageOutput)) return;
+                if (!File.Exists(translateImageOutput)) return;
+                ShowFullImage(translateImageOutput);
+            };
+            var imageMenu = new ContextMenu();
+            var saveItem = new MenuItem { Header = "保存图片" };
+            saveItem.Click += delegate { SaveTranslatedImage(); };
+            var copyItem = new MenuItem { Header = "复制图片到剪贴板" };
+            copyItem.Click += delegate { CopyTranslatedImage(); };
+            var openItem = new MenuItem { Header = "打开预览" };
+            openItem.Click += delegate
+            {
+                if (!string.IsNullOrEmpty(translateImageOutput) && File.Exists(translateImageOutput))
+                    ShowFullImage(translateImageOutput);
+            };
+            imageMenu.Items.Add(openItem);
+            imageMenu.Items.Add(saveItem);
+            imageMenu.Items.Add(copyItem);
+            previewHost.ContextMenu = imageMenu;
             Grid.SetRow(previewHost, 1);
             imageLayer.Children.Add(previewHost);
 
@@ -402,13 +426,56 @@ namespace IslandShot
                 translateImageStatus.Text = "已翻译 " + result.TranslatedCount + " 行 · 结果已保存到 data\\translate-img";
             }
 
-            var builder = new StringBuilder();
-            for (int i = 0; i < result.Pairs.Count; i++)
+            // 图片翻译只展示图片：右侧放一句说明，不铺文字
+            SetTranslateResult("", "");
+            if (translateResultPlaceholder != null)
             {
-                builder.Append(result.Pairs[i].Source).Append(" → ").Append(result.Pairs[i].Target);
-                if (i < result.Pairs.Count - 1) builder.Append('\n');
+                translateResultPlaceholder.Text = "图片已翻译\n单击图片可放大 · 右键可保存";
+                translateResultPlaceholder.Visibility = Visibility.Visible;
             }
-            SetTranslateResult("图片翻译：共 " + result.LineCount + " 行，翻译 " + result.TranslatedCount + " 行", builder.ToString());
+        }
+
+        void SaveTranslatedImage()
+        {
+            if (string.IsNullOrEmpty(translateImageOutput) || !File.Exists(translateImageOutput))
+            {
+                if (translateImageStatus != null) translateImageStatus.Text = "还没有可保存的图片";
+                return;
+            }
+            using (var dialog = new Forms.SaveFileDialog())
+            {
+                dialog.Filter = "PNG 图片|*.png|JPEG 图片|*.jpg";
+                dialog.FileName = Path.GetFileName(translateImageOutput);
+                try { dialog.InitialDirectory = Path.GetDirectoryName(translateImageOutput); }
+                catch (Exception) { }
+                if (dialog.ShowDialog() != Forms.DialogResult.OK) return;
+                try
+                {
+                    File.Copy(translateImageOutput, dialog.FileName, true);
+                    if (translateImageStatus != null) translateImageStatus.Text = "已保存到 " + dialog.FileName;
+                }
+                catch (Exception ex)
+                {
+                    if (translateImageStatus != null) translateImageStatus.Text = "保存失败：" + ex.Message;
+                }
+            }
+        }
+
+        void CopyTranslatedImage()
+        {
+            if (string.IsNullOrEmpty(translateImageOutput) || !File.Exists(translateImageOutput)) return;
+            try
+            {
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.UriSource = new Uri(translateImageOutput, UriKind.Absolute);
+                image.EndInit();
+                image.Freeze();
+                Clipboard.SetImage(image);
+                if (translateImageStatus != null) translateImageStatus.Text = "图片已复制到剪贴板";
+            }
+            catch (Exception) { }
         }
 
         // ---------------- 右：译文 ----------------
