@@ -57,6 +57,7 @@ namespace IslandShot
         Button imageTab, textTab, textClear, imageClear;
         Button translateTab;
         bool showingTranslate;
+        bool forceImageSurface;
         bool showingText;
         bool capsuleClosed;
         string lastClipboardHash = "";
@@ -1054,6 +1055,18 @@ namespace IslandShot
                 ReloadCardImages();
                 if (aiLastSurface || aiVisible) RestoreAiChatVisuals();
             }
+            // 新增图片时强制回到图片面板（照片要飞进去），但不动"上次是哪个面板"的记忆
+            if (value && forceImageSurface)
+            {
+                forceImageSurface = false;
+                if (aiVisible) BackToImagePanel();
+                if (musicVisible) BackToImagePanelFromMusic();
+                SetTab(false);
+                if (mouseHook != null) mouseHook.Enabled = value;
+                SetExpandedAnimated(value);
+                UpdateCapsuleMusicMode();
+                return;
+            }
             // 上次关的是 AI 面板 → 从胶囊再展开时直接回到 AI 面板。
             // （图片/文字面板不受影响：它们本来就默认回到"图片"页签）
             if (value && aiLastSurface && !aiVisible && aiPanel != null)
@@ -1860,11 +1873,11 @@ namespace IslandShot
         }
 
         // 取出的图片关闭后：直接收回胶囊，不再把面板重新展开一下。
+        // 预览窗口关闭后：把面板重新展开回来（点空白关掉大图 → 面板又出来）
         void ReturnToCapsule()
         {
             suppressDeactivate = false;
-            if (expanded) SetExpanded(false);
-            else CapsuleCatch();
+            if (!expanded) SetExpanded(true);
         }
         void ShowCardZoom(Border card, string path)
         {

@@ -585,6 +585,8 @@ namespace IslandShot
             {
                 peekOwned = true;
                 quietExpand = true;
+                // 新图片要用图片面板接住；forceImageSurface 只影响这次展开，不覆盖"上次是音乐/AI"的记忆
+                forceImageSurface = true;
                 try { SetExpanded(true); } finally { quietExpand = false; }
             }
 
