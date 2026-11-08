@@ -148,7 +148,8 @@ namespace IslandShot
                     Dispatcher.BeginInvoke(new Action(delegate
                     {
                         SetExpanded(true);
-                        MessengerLog("after expand: expanded=" + expanded + " panelVis=" + (panel == null ? "null" : panel.Visibility.ToString()) + " w=" + (int)Width + " h=" + (int)Height);
+                        MessengerLog("after expand: expanded=" + expanded + " panel=" + (panel == null ? "null" : panel.Visibility.ToString()) + " w=" + (int)Width + " h=" + (int)Height + " left=" + (int)Left + " top=" + (int)Top + " opacity=" + Opacity.ToString("0.00"));
+                        Motion.Delay(900, delegate { MessengerLog("1s later: expanded=" + expanded + " panel=" + (panel == null ? "null" : panel.Visibility.ToString()) + " w=" + (int)Width + " h=" + (int)Height + " left=" + (int)Left + " top=" + (int)Top); });
                     }), System.Windows.Threading.DispatcherPriority.Background);
                     return;
                 }
