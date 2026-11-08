@@ -373,7 +373,7 @@ namespace IslandShot
             }
             else
             {
-                topStatus.Text = "已翻译 " + result.TranslatedCount + " 行" + (unchanged > 0 ? "（" + unchanged + " 行未变）" : "");
+                topStatus.Text = "已翻译 " + result.TranslatedCount + " 行 · 引擎：" + TranslateService.EngineLabel() + (unchanged > 0 ? " · " + unchanged + " 行未变" : "");
             }
             hintText.Text = "Esc 或右上角 ✕ 关闭 · 右键可保存图片";
             Motion.AnimateDouble(statusPill, UIElement.OpacityProperty, 1, 0, 260, Motion.Exit, 1400, null);

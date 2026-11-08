@@ -100,6 +100,45 @@ namespace IslandShot
             return pair == "zh-CN|en" ? "英文" : "中文";
         }
 
+        // 译文和原文几乎一样（去掉空白/标点后相同）→ 视为没翻译
+        internal static bool LooksUnchanged(string source, string target)
+        {
+            return Strip(source) == Strip(target);
+        }
+
+        static string Strip(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            var builder = new StringBuilder();
+            foreach (char c in text)
+            {
+                if (char.IsWhiteSpace(c) || char.IsPunctuation(c)) continue;
+                builder.Append(char.ToLowerInvariant(c));
+            }
+            return builder.ToString();
+        }
+
+        // 只用免费通道（AI 结果无效时兜底）
+        public static async Task<string> TranslateFreeAsync(string text, string pair)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "";
+            string url = "https://api.mymemory.translated.net/get?q=" +
+                         Uri.EscapeDataString(text) +
+                         "&langpair=" + Uri.EscapeDataString(pair) +
+                         "&de=myriadisle%40outlook.com";
+            string body = await Client.GetStringAsync(url).ConfigureAwait(false);
+            var serializer = new JavaScriptSerializer { MaxJsonLength = 4 * 1024 * 1024 };
+            var root = serializer.Deserialize<System.Collections.Generic.Dictionary<string, object>>(body);
+            if (root == null) return "";
+            object data;
+            if (!root.TryGetValue("responseData", out data) || data == null) return "";
+            var dataDict = data as System.Collections.Generic.Dictionary<string, object>;
+            if (dataDict == null) return "";
+            object translated;
+            if (!dataDict.TryGetValue("translatedText", out translated) || translated == null) return "";
+            return WebUtility.HtmlDecode(translated.ToString());
+        }
+
         // 界面显示当前实际用的是哪个引擎
         internal static string EngineLabel()
         {
@@ -123,7 +162,8 @@ namespace IslandShot
             if (!string.Equals(engine, TranslateSettings.Free, StringComparison.OrdinalIgnoreCase) && AiTranslateService.IsAvailable())
             {
                 string ai = await Task.Run(delegate { return AiTranslateService.Translate(text, pair); }).ConfigureAwait(false);
-                if (!string.IsNullOrWhiteSpace(ai)) return ai.Trim();
+                // AI 有时会把原文原样吐回来（等于没翻），这种结果不算成功，继续走免费通道
+                if (!string.IsNullOrWhiteSpace(ai) && !LooksUnchanged(text, ai)) return ai.Trim();
             }
 
             string url = "https://api.mymemory.translated.net/get?q=" +

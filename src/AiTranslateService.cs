@@ -32,7 +32,7 @@ namespace IslandShot
                 AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
             };
             var client = new HttpClient(handler);
-            client.Timeout = TimeSpan.FromSeconds(40);
+            client.Timeout = TimeSpan.FromSeconds(15);
             return client;
         }
 
