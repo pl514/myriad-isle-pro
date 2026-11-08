@@ -198,7 +198,17 @@ namespace IslandShot
                 overlay.Show();
                 overlay.Activate();
             }
-            catch (Exception) { }
+            catch (Exception ex)
+            {
+                try
+                {
+                    string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "screen-translate");
+                    if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                    File.AppendAllText(Path.Combine(folder, "screen-translate.log"),
+                        DateTime.Now.ToString("HH:mm:ss.fff") + " 失败: " + ex.GetType().Name + " " + ex.Message + Environment.NewLine);
+                }
+                catch (Exception) { }
+            }
         }
 
         // ---------------- 左：输入 ----------------

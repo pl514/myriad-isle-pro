@@ -33,6 +33,11 @@ namespace IslandShot
         Canvas rippleLayer;
         System.Windows.Shapes.Ellipse rippleBloom;
         System.Windows.Shapes.Rectangle veil;
+        Canvas selectLayer;
+        System.Windows.Shapes.Rectangle selectRect;
+        Canvas resultLayer;
+        Point dragStart;
+        bool dragging;
         ScaleTransform rippleScale;
         System.Windows.Shapes.Rectangle fog;
         System.Windows.Media.Effects.BlurEffect pictureBlur;
@@ -285,7 +290,7 @@ namespace IslandShot
                 }
                 Motion.AnimateDouble(veil, UIElement.OpacityProperty, 0, 1, 420, Motion.Enter, 0, null);
                 SetClickThrough(false);
-                BeginTranslate();
+                BeginSelection();
             };
             finish.Start();
         }
@@ -309,6 +314,139 @@ namespace IslandShot
             {
                 if (statusLabel != null) statusLabel.Text = text;
             }), DispatcherPriority.Background);
+        }
+
+        static void Log(string message)
+        {
+            try
+            {
+                string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "screen-translate");
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                File.AppendAllText(Path.Combine(folder, "overlay.log"),
+                    DateTime.Now.ToString("HH:mm:ss.fff") + " " + message + Environment.NewLine);
+            }
+            catch (Exception) { }
+        }
+
+        // ---------- 框选区域翻译 ----------
+        void BeginSelection()
+        {
+            Log("BeginSelection");
+            resultLayer = new Canvas();
+            root.Children.Add(resultLayer);
+
+            selectLayer = new Canvas { Background = Brushes.Transparent, Cursor = Cursors.Cross };
+            selectRect = new System.Windows.Shapes.Rectangle
+            {
+                Stroke = new SolidColorBrush(Color.FromRgb(140, 190, 255)),
+                StrokeThickness = 1.6,
+                StrokeDashArray = new DoubleCollection { 4, 3 },
+                Fill = new SolidColorBrush(Color.FromArgb(30, 140, 190, 255)),
+                Visibility = Visibility.Collapsed,
+                IsHitTestVisible = false
+            };
+            selectLayer.Children.Add(selectRect);
+            root.Children.Add(selectLayer);
+
+            selectLayer.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
+            {
+                dragging = true;
+                dragStart = e.GetPosition(selectLayer);
+                Canvas.SetLeft(selectRect, dragStart.X);
+                Canvas.SetTop(selectRect, dragStart.Y);
+                selectRect.Width = 0;
+                selectRect.Height = 0;
+                selectRect.Visibility = Visibility.Visible;
+            };
+            selectLayer.MouseMove += delegate(object sender, MouseEventArgs e)
+            {
+                if (!dragging) return;
+                Point now = e.GetPosition(selectLayer);
+                Canvas.SetLeft(selectRect, Math.Min(dragStart.X, now.X));
+                Canvas.SetTop(selectRect, Math.Min(dragStart.Y, now.Y));
+                selectRect.Width = Math.Abs(now.X - dragStart.X);
+                selectRect.Height = Math.Abs(now.Y - dragStart.Y);
+            };
+            selectLayer.MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
+            {
+                if (!dragging) return;
+                dragging = false;
+                var rect = new Rect(Canvas.GetLeft(selectRect), Canvas.GetTop(selectRect), selectRect.Width, selectRect.Height);
+                selectRect.Visibility = Visibility.Collapsed;
+                if (rect.Width < 24 || rect.Height < 18) return;
+                TranslateRegion(rect);
+            };
+
+            topStatus.Text = "框选要翻译的区域";
+            hintText.Text = "按住左键拖一个框 · Esc 关闭";
+        }
+
+        void TranslateRegion(Rect rect)
+        {
+            Log("TranslateRegion " + rect);
+            // 屏幕坐标（DIP）→ 原图像素
+            double scaleX = imageWidth / Math.Max(1, ActualWidth);
+            double scaleY = imageHeight / Math.Max(1, ActualHeight);
+            int sx = (int)Math.Max(0, rect.X * scaleX);
+            int sy = (int)Math.Max(0, rect.Y * scaleY);
+            int sw = (int)Math.Min(imageWidth - sx, rect.Width * scaleX);
+            int sh = (int)Math.Min(imageHeight - sy, rect.Height * scaleY);
+            if (sw < 8 || sh < 8) return;
+
+            string cropPath = "";
+            try
+            {
+                using (var full = new System.Drawing.Bitmap(sourcePath))
+                using (var crop = full.Clone(new System.Drawing.Rectangle(sx, sy, sw, sh), System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                {
+                    string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "screen-translate");
+                    if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                    cropPath = Path.Combine(folder, "crop-" + DateTime.Now.ToString("HHmmss-fff") + ".png");
+                    crop.Save(cropPath, System.Drawing.Imaging.ImageFormat.Png);
+                }
+            }
+            catch (Exception ex)
+            {
+                topStatus.Text = "截取失败：" + ex.Message;
+                return;
+            }
+
+            topStatus.Text = "正在识别该区域…";
+            var piece = new Image { Stretch = Stretch.Fill, Width = rect.Width, Height = rect.Height, Source = LoadImage(cropPath) };
+            Canvas.SetLeft(piece, rect.X);
+            Canvas.SetTop(piece, rect.Y);
+            resultLayer.Children.Add(piece);
+
+            string path = cropPath;
+            Task.Run(delegate
+            {
+                try
+                {
+                    ImageTranslationResult result = ImageTranslator.Translate(path,
+                        delegate(string message) { SetStatus("局部翻译 · " + message); },
+                        null);
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        if (!string.IsNullOrEmpty(result.OutputPath) && File.Exists(result.OutputPath))
+                        {
+                            piece.Source = LoadImage(result.OutputPath);
+                        }
+                        topStatus.Text = "该区域已翻译 " + result.TranslatedCount + " 行 · 引擎：" + TranslateService.EngineLabel()
+                                         + (result.UnchangedCount > 0 ? " · " + result.UnchangedCount + " 行未变" : "");
+                        hintText.Text = "可以继续框选其他区域 · Esc 关闭";
+                        Motion.AnimateDouble(veil, UIElement.OpacityProperty, veil.Opacity, 0, 360, Motion.Exit, 0, null);
+                    }), DispatcherPriority.Background);
+                }
+                catch (Exception ex)
+                {
+                    string message = ex.Message;
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        piece.Visibility = Visibility.Collapsed;
+                        topStatus.Text = "该区域翻译失败：" + message;
+                    }), DispatcherPriority.Background);
+                }
+            });
         }
 
         void BeginTranslate()
