@@ -175,25 +175,25 @@ namespace IslandShot
 
             foreach (EditorItem item in Items) item.Draw(dc, BaseImage);
 
-            if (Selected != null)
+            // 选中虚线框/手柄只在"选择"工具下显示：
+            // 画矩形、画笔、箭头时不应该在刚画的东西外面套一圈蓝框。
+            bool showSelection = Tool == EditorTool.Select && Selected != null;
+
+            if (showSelection)
             {
                 double thickness = 1 / Scale;
                 var pen = new Pen(new SolidColorBrush(Color.FromRgb(90, 170, 255)), thickness);
                 pen.DashStyle = new DashStyle(new double[] { 4, 3 }, 0);
                 pen.Freeze();
 
-                // 裁剪模式画裁剪框，否则画选中框 + 手柄
-                Rect box = CropActive ? CropRect : Selected.Bounds;
+                Rect box = Selected.Bounds;
                 if (box.Width > 0 || box.Height > 0) dc.DrawRectangle(null, pen, box);
 
-                if (!CropActive)
+                foreach (Point handle in HandlePoints(box))
                 {
-                    foreach (Point handle in HandlePoints(box))
-                    {
-                        double size = 7 / Scale;
-                        dc.DrawRectangle(Brushes.White, new Pen(Brushes.SteelBlue, 1 / Scale),
-                            new Rect(handle.X - size / 2, handle.Y - size / 2, size, size));
-                    }
+                    double size = 7 / Scale;
+                    dc.DrawRectangle(Brushes.White, new Pen(Brushes.SteelBlue, 1 / Scale),
+                        new Rect(handle.X - size / 2, handle.Y - size / 2, size, size));
                 }
             }
             else if (CropActive)
@@ -472,10 +472,8 @@ namespace IslandShot
                 {
                     NextStepNumber++;
                 }
-                else if (editing is TextItem)
-                {
-                    // 文本在窗口里二次确认
-                }
+                // 用绘制工具画完就取消选中：要改属性请切到"选择"工具点它
+                if (editing != null && !(editing is TextItem)) Selected = null;
                 editing = null;
             }
 

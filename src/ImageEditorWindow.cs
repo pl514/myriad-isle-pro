@@ -196,6 +196,7 @@ namespace IslandShot
                 Foreground = new SolidColorBrush(TextColor),
                 BorderBrush = new SolidColorBrush(LineColor),
                 BorderThickness = new Thickness(1),
+                FocusVisualStyle = null,
                 Cursor = Cursors.Hand
             };
             button.Click += delegate { action(); };
@@ -220,6 +221,7 @@ namespace IslandShot
             AddTool(EditorTool.Blur, "模糊", "M3,8 C5,4 9,4 11,8 C9,12 5,12 3,8", true);
             AddTool(EditorTool.Pixelate, "马赛克", "M3,3 H7 V7 H3 Z M9,3 H13 V7 H9 Z M3,9 H7 V13 H3 Z M9,9 H13 V13 H9 Z", true);
             AddTool(EditorTool.Crop, "裁剪", "M5,2 V13 H16 M2,5 H13 V16", false);
+            AddTool(EditorTool.Pan, "移动画布", "M8,2 V14 M2,8 H14 M5,5 L8,2 L11,5 M5,11 L8,14 L11,11 M5,5 L2,8 L5,11 M11,5 L14,8 L11,11", false);
 
             toolRow.Children.Add(Separator());
 
@@ -270,6 +272,7 @@ namespace IslandShot
                 BorderBrush = Brushes.Transparent,
                 ToolTip = tip,
                 Cursor = Cursors.Hand,
+                FocusVisualStyle = null,
                 Content = icon,
                 Tag = tool
             };
