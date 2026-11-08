@@ -92,6 +92,7 @@ namespace IslandShot
         Thread worker;
         volatile bool stopping;
         readonly Dictionary<int, string> processNames = new Dictionary<int, string>();
+        readonly Dictionary<int, DateTime> lastLogged = new Dictionary<int, DateTime>();
         DateTime namesRefreshed = DateTime.MinValue;
         readonly Dictionary<string, DateTime> lastFired = new Dictionary<string, DateTime>();
 
@@ -192,6 +193,21 @@ namespace IslandShot
 
                                 string processName;
                                 if (!processNames.TryGetValue(pid, out processName)) continue;
+                                var meterAny = control as IAudioMeterInformation;
+                                if (meterAny != null)
+                                {
+                                    float anyPeak;
+                                    if (meterAny.GetPeakValue(out anyPeak) == 0 && anyPeak >= 0.05f)
+                                    {
+                                        DateTime last;
+                                        if (!lastLogged.TryGetValue(pid, out last) || (DateTime.Now - last).TotalMilliseconds > 2000)
+                                        {
+                                            lastLogged[pid] = DateTime.Now;
+                                            DebugLog("peak from " + processName + " pid=" + pid + " peak=" + anyPeak.ToString("0.000"));
+                                        }
+                                    }
+                                }
+
                                 string app = MessengerForProcessName(processName);
                                 if (app == null) continue;
 
