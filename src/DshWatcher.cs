@@ -1,21 +1,24 @@
 using System;
-using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace IslandShot
 {
-    // 监听 DSH（DeepSeek Harness）的工作状态：一轮任务从"进行中"变成"结束"时回调一次。
-    // DSH 会把会话状态写到 ~/.dsh/storages/session_projcache/sessions/session-*.json，
-    // 其中 approvalState.turnOpen = true 表示该轮还在跑。
+    // 监听 DSH（DeepSeek Harness）的工作状态。
+    // 实测：DSH 在一轮结束时不会写"结束标记"，会话文件只是停止更新。
+    // 所以用"活动 → 静默"来判断：会话文件持续变化时算干活中，稳定 10 秒没变化就算这一轮结束。
     internal sealed class DshWatcher : IDisposable
     {
+        const int IdleMs = 10000;      // 静默多久算结束
+        const int PollMs = 2000;
+
         readonly Action onFinished;
         Timer timer;
-        string lastFile;
-        bool lastOpen;
+        bool active;
+        DateTime lastWriteUtc;
         bool primed;
+        DateTime lastFireUtc = DateTime.MinValue;
 
         public DshWatcher(Action finished)
         {
@@ -25,7 +28,7 @@ namespace IslandShot
         public void Start()
         {
             if (timer != null) return;
-            timer = new Timer(Poll, null, 2500, 2500);
+            timer = new Timer(Poll, null, PollMs, PollMs);
         }
 
         public void Dispose()
@@ -49,55 +52,54 @@ namespace IslandShot
                 string folder = SessionFolder;
                 if (!Directory.Exists(folder)) return;
 
-                FileInfo newest = null;
-                foreach (string file in Directory.GetFiles(folder, "session-*.json"))
+                DateTime newest = DateTime.MinValue;
+                foreach (string file in Directory.GetFiles(folder, "session-*"))
                 {
-                    var info = new FileInfo(file);
-                    if (newest == null || info.LastWriteTimeUtc > newest.LastWriteTimeUtc) newest = info;
+                    DateTime write = File.GetLastWriteTimeUtc(file);
+                    if (write > newest) newest = write;
                 }
-                if (newest == null) return;
-
-                bool open = ReadTurnOpen(newest.FullName);
-                string name = newest.FullName;
+                if (newest == DateTime.MinValue) return;
 
                 if (!primed)
                 {
                     primed = true;
-                    lastFile = name;
-                    lastOpen = open;
+                    lastWriteUtc = newest;
                     return;
                 }
 
-                // 同一个会话里：进行中 → 结束
-                bool finished = name == lastFile && lastOpen && !open;
-                // 换了一个会话文件：上一个会话已经结束
-                if (name != lastFile && lastOpen) finished = true;
+                if (newest > lastWriteUtc)
+                {
+                    // 有新活动
+                    lastWriteUtc = newest;
+                    active = true;
+                    return;
+                }
 
-                lastFile = name;
-                lastOpen = open;
+                if (!active) return;
 
-                if (finished && onFinished != null) onFinished();
+                double silentMs = (DateTime.UtcNow - lastWriteUtc).TotalMilliseconds;
+                if (silentMs < IdleMs) return;
+
+                active = false;
+                if ((DateTime.UtcNow - lastFireUtc).TotalMilliseconds < 5000) return;
+                lastFireUtc = DateTime.UtcNow;
+                DebugLog("dsh idle " + (int)(silentMs / 1000) + "s -> finished");
+                Action handler = onFinished;
+                if (handler != null) handler();
             }
             catch (Exception) { }
         }
 
-        static bool ReadTurnOpen(string path)
+        static void DebugLog(string message)
         {
             try
             {
-                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                using (var reader = new StreamReader(stream, System.Text.Encoding.UTF8))
-                {
-                    // 只读前面一段就够了，避免整文件读入
-                    var buffer = new char[64 * 1024];
-                    int read = reader.Read(buffer, 0, buffer.Length);
-                    string text = new string(buffer, 0, Math.Max(0, read));
-                    Match match = Regex.Match(text, "\"turnOpen\"\\s*:\\s*(true|false)");
-                    if (!match.Success) return false;
-                    return match.Groups[1].Value == "true";
-                }
+                string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                File.AppendAllText(Path.Combine(folder, "messenger.log"),
+                    DateTime.Now.ToString("HH:mm:ss.fff") + "  " + message + Environment.NewLine);
             }
-            catch (Exception) { return false; }
+            catch (Exception) { }
         }
     }
 }
