@@ -150,12 +150,12 @@ namespace IslandShot
             panelNoticeChip.IsHitTestVisible = true;
         }
 
+        // 只是把胶囊收起来（比如收起面板、展开功能球），未读状态保留
         void HidePanelNoticeChip()
         {
             if (panelNoticeChip == null) return;
             panelNoticeChip.Visibility = Visibility.Collapsed;
             panelNoticeApp = null;
-            pendingNoticeApp = null;   // 已读
         }
 
         Grid BuildCapsuleNotice()
