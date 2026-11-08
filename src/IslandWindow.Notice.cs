@@ -29,7 +29,7 @@ namespace IslandShot
 
         const int HShellFlash = 0x8006;          // HSHELL_REDRAW | 0x8000
         const double CapsuleNoticeWidth = 208;
-        const int NoticeHoldMs = 0;   // 0 = 常驻，等用户点击/查看消息后消失
+        const int NoticeHoldMs = 2000;   // 显示 2 秒后自动变回眼睛
 
         Grid capsuleNotice;
         TextBlock capsuleNoticeText;
@@ -38,6 +38,7 @@ namespace IslandShot
         bool capsuleNoticeActive;
         bool capsuleNoticeHidMusic;
         string capsuleNoticeApp = "wechat";
+        string pendingNoticeApp = "";
         readonly List<DependencyObject> capsuleNoticeButtons = new List<DependencyObject>();
 
         uint shellHookMessage;
@@ -151,7 +152,13 @@ namespace IslandShot
 
         void ShowCapsuleNotice(string appId)
         {
-            if (capsuleNotice == null || expanded) return;
+            if (capsuleNotice == null) return;
+            if (expanded)
+            {
+                // 面板展开时胶囊不可见：先记下来，收起后再显示
+                pendingNoticeApp = appId == "qq" ? "qq" : "wechat";
+                return;
+            }
             capsuleNoticeApp = appId == "qq" ? "qq" : "wechat";
             bool isQq = capsuleNoticeApp == "qq";
 
@@ -197,11 +204,17 @@ namespace IslandShot
                 };
             }
             capsuleNoticeTimer.Stop();
-            if (NoticeHoldMs > 0)
-            {
-                capsuleNoticeTimer.Interval = TimeSpan.FromMilliseconds(NoticeHoldMs);
-                capsuleNoticeTimer.Start();
-            }
+            capsuleNoticeTimer.Interval = TimeSpan.FromMilliseconds(NoticeHoldMs);
+            capsuleNoticeTimer.Start();
+        }
+
+        // 面板展开期间收到的消息：收起后再补显示 2 秒
+        void ShowPendingNotice()
+        {
+            if (string.IsNullOrEmpty(pendingNoticeApp)) return;
+            string app = pendingNoticeApp;
+            pendingNoticeApp = null;
+            Motion.Delay(420, delegate { if (!expanded) ShowCapsuleNotice(app); });
         }
 
         void HideCapsuleNotice()
