@@ -10,7 +10,7 @@ namespace IslandShot
     // 所以用"活动 → 静默"来判断：会话文件持续变化时算干活中，稳定 10 秒没变化就算这一轮结束。
     internal sealed class DshWatcher : IDisposable
     {
-        const int IdleMs = 10000;      // 静默多久算结束
+        const int IdleMs = 3000;       // 静默多久算结束（原来 10 秒太慢）
         const int PollMs = 2000;
 
         readonly Action onFinished;
