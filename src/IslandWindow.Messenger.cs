@@ -130,6 +130,14 @@ namespace IslandShot
             messengerLearnTimer.Start();
         }
 
+        // 跳转到客户端即视为已读：清掉收起态提示和面板里的未读胶囊
+        void ClearUnreadNotice()
+        {
+            pendingNoticeApp = null;
+            HidePanelNoticeChip();
+            if (capsuleNoticeActive) HideCapsuleNotice();
+        }
+
         void LearnMessengerWindow()
         {
             try

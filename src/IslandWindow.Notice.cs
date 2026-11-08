@@ -121,7 +121,7 @@ namespace IslandShot
                 BorderBrush = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(10, 5, 12, 5),
-                Margin = new Thickness(8, 0, 0, 0),
+                Margin = new Thickness(4, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 Cursor = Cursors.Hand,
                 Visibility = Visibility.Collapsed,
@@ -202,6 +202,7 @@ namespace IslandShot
             {
                 e.Handled = true;
                 OpenMessengerApp(capsuleNoticeApp);
+            ClearUnreadNotice();
                 HideCapsuleNotice();
             };
             capsuleNoticeButtons.Add(grid);
