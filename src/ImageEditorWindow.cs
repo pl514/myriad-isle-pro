@@ -33,7 +33,7 @@ namespace IslandShot
 
         EditorTool currentTool = EditorTool.Select;
         bool textEditingNew;
-        Point textOrigin;
+        Rect textBoxRect;
         Color strokeColor = Color.FromRgb(255, 69, 58);
         Color fillColor = Color.FromArgb(0, 0, 0, 0);
         double thickness = 3;
@@ -42,6 +42,17 @@ namespace IslandShot
         int blurRadius = 6;
         int pixelBlock = 10;
         int stepStart = 1;
+        Color highlightColor = Color.FromRgb(255, 226, 66);
+        int highlightAlpha = 90;
+
+        void ApplyHighlightColor()
+        {
+            Color fill = Color.FromArgb((byte)Math.Max(0, Math.Min(255, highlightAlpha)), highlightColor.R, highlightColor.G, highlightColor.B);
+            surface.HighlightFill = fill;
+            HighlightItem selected = surface.Selected as HighlightItem;
+            if (selected != null) selected.Fill = fill;
+            surface.InvalidateVisual();
+        }
 
         public ImageEditorWindow(string path, Action<string> saved)
         {
@@ -310,6 +321,27 @@ namespace IslandShot
         {
             propertyRow.Children.Clear();
 
+            if (currentTool == EditorTool.Highlight)
+            {
+                // 高亮是半透明色块，单独给一个颜色 + 浓度，避免和描边色混淆
+                propertyRow.Children.Add(Label("高亮颜色"));
+                AddColorSwatches(highlightColor, delegate(Color color)
+                {
+                    highlightColor = color;
+                    ApplyHighlightColor();
+                    BuildPropertyBar();
+                });
+
+                propertyRow.Children.Add(Label("浓度", 10));
+                AddSlider(20, 180, highlightAlpha, delegate(double value)
+                {
+                    highlightAlpha = (int)Math.Round(value);
+                    ApplyHighlightColor();
+                });
+                propertyRow.Children.Add(Label("（拖出一块区域即可高亮）", 10));
+                return;
+            }
+
             propertyRow.Children.Add(Label("颜色"));
             AddColorSwatches(strokeColor, delegate(Color color)
             {
@@ -576,16 +608,19 @@ namespace IslandShot
         }
 
         // ------------------------------------------------------------ 文字输入
-        void OnTextRequested(Point origin)
+        void OnTextRequested(Rect box)
         {
-            textOrigin = origin;
+            textBoxRect = box;
             TextItem existing = surface.Selected as TextItem;
-            textEditingNew = existing == null;
+            textEditingNew = existing == null || surface.PendingText != null;
             textInput.Text = existing != null ? existing.Text : "";
+
+            double width = Math.Max(160, box.Width * surface.Scale);
+            textInput.Width = Math.Min(Math.Max(160, surface.ActualWidth - 40), width);
             textInput.Visibility = Visibility.Visible;
 
-            Canvas.SetLeft(textInput, origin.X * surface.Scale + surface.Offset.X);
-            Canvas.SetTop(textInput, origin.Y * surface.Scale + surface.Offset.Y);
+            Canvas.SetLeft(textInput, box.X * surface.Scale + surface.Offset.X);
+            Canvas.SetTop(textInput, box.Y * surface.Scale + surface.Offset.Y);
             textInput.Focus();
             textInput.SelectAll();
         }
@@ -600,7 +635,10 @@ namespace IslandShot
         {
             if (textInput.Visibility != Visibility.Visible) return;
             textInput.Visibility = Visibility.Collapsed;
-            surface.CommitText(textInput.Text, textOrigin, textEditingNew);
+            surface.CommitText(textInput.Text, textBoxRect, textEditingNew);
+
+            // 输完字切到选择工具：这样马上能看到文本框边框，也能拖动/改宽度
+            SelectTool(EditorTool.Select);
         }
 
         // ------------------------------------------------------------ 保存

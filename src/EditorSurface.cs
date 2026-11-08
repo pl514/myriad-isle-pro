@@ -31,8 +31,11 @@ namespace IslandShot
         public int BlurRadius = 6;
         public int PixelBlock = 10;
 
-        public event Action<Point> TextRequested;
+        public event Action<Rect> TextRequested;
         public event Action Changed;
+
+        public TextItem PendingText;
+        public Color HighlightFill = Color.FromArgb(90, 255, 226, 66);
 
         sealed class Snapshot
         {
@@ -333,15 +336,23 @@ namespace IslandShot
                 case EditorTool.Step:
                     return new StepItem { Rect = new Rect(start, start), Number = NextStepNumber, Opacity = DefaultOpacity, Thickness = DefaultThickness, Stroke = DefaultStroke };
                 case EditorTool.Highlight:
-                    return new HighlightItem { Rect = new Rect(start, start), Opacity = 1, Fill = Color.FromArgb(90, 255, 226, 66) };
+                    return new HighlightItem { Rect = new Rect(start, start), Opacity = 1, Fill = HighlightFill };
                 case EditorTool.Blur:
                     return new BlurItem { Rect = new Rect(start, start), Radius = BlurRadius, Opacity = 1 };
                 case EditorTool.Pixelate:
                     return new PixelateItem { Rect = new Rect(start, start), Block = PixelBlock, Opacity = 1 };
                 case EditorTool.Text:
-                    Action<Point> request = TextRequested;
-                    if (request != null) request(start);
-                    return null;
+                    var textItem = new TextItem
+                    {
+                        Text = "",
+                        Box = new Rect(start.X, start.Y, 240, 40),
+                        FontSize = DefaultFontSize,
+                        Stroke = DefaultStroke,
+                        Opacity = DefaultOpacity
+                    };
+                    textItem.Layout();
+                    PendingText = textItem;
+                    return textItem;
             }
             return null;
         }
@@ -422,6 +433,8 @@ namespace IslandShot
             if (blur != null) { blur.Rect = RectFrom(dragStart, point); blur.Invalidate(); return; }
             var pixelate = item as PixelateItem;
             if (pixelate != null) { pixelate.Rect = RectFrom(dragStart, point); pixelate.Invalidate(); return; }
+            var text = item as TextItem;
+            if (text != null) { text.Box = RectFrom(dragStart, point); text.Layout(); return; }
         }
 
         static Rect RectFrom(Point a, Point b)
@@ -472,6 +485,20 @@ namespace IslandShot
                 {
                     NextStepNumber++;
                 }
+
+                // 文字：松手后框已经画好，这时再弹出输入框
+                TextItem pendingText = editing as TextItem;
+                if (pendingText != null)
+                {
+                    if (pendingText.Box.Width < 24 || pendingText.Box.Height < 12)
+                    {
+                        pendingText.Box = new Rect(pendingText.Box.X, pendingText.Box.Y, 260, 40);
+                    }
+                    pendingText.Layout();
+                    Action<Rect> request = TextRequested;
+                    if (request != null) request(pendingText.Box);
+                }
+
                 // 用绘制工具画完就取消选中：要改属性请切到"选择"工具点它
                 if (editing != null && !(editing is TextItem)) Selected = null;
                 editing = null;
@@ -490,8 +517,8 @@ namespace IslandShot
             TextItem text = Selected as TextItem;
             if (text != null)
             {
-                Action<Point> request = TextRequested;
-                if (request != null) request(text.Origin);
+                Action<Rect> request = TextRequested;
+                if (request != null) request(text.Bounds);
                 return;
             }
             EditorItem hit = HitTest(imagePoint);
@@ -499,8 +526,8 @@ namespace IslandShot
             if (hitText != null)
             {
                 Selected = hitText;
-                Action<Point> request2 = TextRequested;
-                if (request2 != null) request2(hitText.Origin);
+                Action<Rect> request2 = TextRequested;
+                if (request2 != null) request2(hitText.Bounds);
             }
         }
 
@@ -556,32 +583,38 @@ namespace IslandShot
         }
 
         // ------------------------------------------------------------ 文本
-        public void CommitText(string text, Point origin, bool isNew)
+        public void CommitText(string text, Rect box, bool isNew)
         {
-            if (string.IsNullOrEmpty(text)) return;
-            TextItem item = Selected as TextItem;
-            if (isNew || item == null)
+            TextItem item = PendingText;
+            PendingText = null;
+            if (item == null) item = Selected as TextItem;
+
+            if (item != null)
             {
                 PushUndo();
-                item = new TextItem
+                item.Text = text;
+                item.Box = box;
+                item.Stroke = DefaultStroke;
+                item.FontSize = DefaultFontSize;
+                item.Opacity = DefaultOpacity;
+                item.Layout();
+                if (string.IsNullOrEmpty(text)) Items.Remove(item);
+                else Selected = item;
+            }
+            else if (!string.IsNullOrEmpty(text))
+            {
+                PushUndo();
+                var created = new TextItem
                 {
                     Text = text,
-                    Origin = origin,
+                    Box = box,
                     FontSize = DefaultFontSize,
                     Stroke = DefaultStroke,
                     Opacity = DefaultOpacity
                 };
-                item.Layout();
-                Items.Add(item);
-                Selected = item;
-            }
-            else
-            {
-                PushUndo();
-                item.Text = text;
-                item.Stroke = DefaultStroke;
-                item.FontSize = DefaultFontSize;
-                item.Layout();
+                created.Layout();
+                Items.Add(created);
+                Selected = created;
             }
             InvalidateVisual();
             RaiseChanged();

@@ -292,15 +292,20 @@ namespace IslandShot
     internal sealed class TextItem : EditorItem
     {
         public string Text = "";
-        public Point Origin;
+        public Rect Box;                 // 文本框：位置 + 宽度（高度按内容算）
         public double FontSize = 22;
         public bool Bold;
         public bool Italic;
+        public double MeasuredHeight;
 
-        // 用于命中/选中：按实际排版尺寸计算
-        public Rect Measured;
-
-        public override Rect Bounds { get { return Measured.IsEmpty ? new Rect(Origin.X, Origin.Y, 10, FontSize) : Measured; } }
+        public override Rect Bounds
+        {
+            get
+            {
+                double height = MeasuredHeight > 0 ? MeasuredHeight : FontSize * 1.4;
+                return new Rect(Box.X, Box.Y, Math.Max(20, Box.Width), height);
+            }
+        }
 
         FormattedText Build()
         {
@@ -311,22 +316,26 @@ namespace IslandShot
                 FontStretches.Normal);
             var brush = new SolidColorBrush(Stroke);
             brush.Freeze();
-            var text = new FormattedText(Text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, FontSize, brush, 1.0);
+            double maxWidth = Box.Width > 8 ? Box.Width : 4000;
+            var text = new FormattedText(Text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                typeface, FontSize, brush, 1.0);
+            text.MaxTextWidth = maxWidth;
+            text.MaxTextHeight = 100000;
             return text;
         }
 
         public void Layout()
         {
-            if (string.IsNullOrEmpty(Text)) { Measured = Rect.Empty; return; }
+            if (string.IsNullOrEmpty(Text)) { MeasuredHeight = FontSize * 1.4; return; }
             FormattedText text = Build();
-            Measured = new Rect(Origin.X, Origin.Y, text.Width, text.Height);
+            MeasuredHeight = text.Height;
         }
 
         public override void Draw(DrawingContext dc, BitmapSource source)
         {
             if (string.IsNullOrEmpty(Text)) return;
             FormattedText text = Build();
-            ApplyOpacity(dc, Opacity, delegate(DrawingContext d) { d.DrawText(text, Origin); });
+            ApplyOpacity(dc, Opacity, delegate(DrawingContext d) { d.DrawText(text, new Point(Box.X, Box.Y)); });
         }
 
         public override EditorItem Clone()
@@ -334,34 +343,32 @@ namespace IslandShot
             return new TextItem
             {
                 Text = Text,
-                Origin = Origin,
+                Box = Box,
                 FontSize = FontSize,
                 Bold = Bold,
                 Italic = Italic,
-                Measured = Measured,
+                MeasuredHeight = MeasuredHeight,
                 Thickness = Thickness,
                 Stroke = Stroke,
                 Opacity = Opacity
             };
         }
 
-        public override void Move(Vector delta) { Origin = new Point(Origin.X + delta.X, Origin.Y + delta.Y); Layout(); }
+        public override void Move(Vector delta)
+        {
+            Box = new Rect(Box.X + delta.X, Box.Y + delta.Y, Box.Width, Box.Height);
+        }
+
         public override void SetBounds(Rect bounds)
         {
-            Rect old = Bounds;
-            if (old.Width > 1 && old.Height > 1)
-            {
-                double scale = Math.Max(0.2, bounds.Width / old.Width);
-                FontSize = Math.Max(6, FontSize * scale);
-            }
-            Origin = new Point(bounds.X, bounds.Y);
+            Box = new Rect(bounds.X, bounds.Y, Math.Max(20, bounds.Width), Box.Height);
             Layout();
         }
 
         public override bool HitTest(Point point, double tolerance)
         {
             Rect bounds = Bounds;
-            bounds.Inflate(2, 2);
+            bounds.Inflate(4, 4);
             return bounds.Contains(point);
         }
     }
