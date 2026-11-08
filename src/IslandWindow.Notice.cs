@@ -155,6 +155,7 @@ namespace IslandShot
             if (panelNoticeChip == null) return;
             panelNoticeChip.Visibility = Visibility.Collapsed;
             panelNoticeApp = null;
+            pendingNoticeApp = null;   // 已读
         }
 
         Grid BuildCapsuleNotice()
@@ -230,6 +231,7 @@ namespace IslandShot
             if (expanded)
             {
                 // 面板展开时：提示出现在三点球右边的消息胶囊里
+                pendingNoticeApp = appId == "qq" ? "qq" : "wechat";
                 ShowPanelNoticeChip(appId);
                 return;
             }
@@ -242,6 +244,7 @@ namespace IslandShot
             capsuleNoticeText.Text = (isQq ? "QQ" : "微信") + " 有新消息";
 
             capsuleNoticeActive = true;
+            pendingNoticeApp = capsuleNoticeApp;   // 记成未读：打开面板时显示在三点球右边
             capsuleNotice.Visibility = Visibility.Visible;
             capsuleNotice.IsHitTestVisible = true;
             Motion.Fade(capsuleNotice, 1, 140, Motion.Enter, 0, null);

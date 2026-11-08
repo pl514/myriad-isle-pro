@@ -1085,7 +1085,8 @@ namespace IslandShot
             if (mouseHook != null) mouseHook.Enabled = value;
             SetExpandedAnimated(value);
             if (!value) ResetOrbHubInstant();
-            if (!value) { ShowPendingNotice(); HidePanelNoticeChip(); }
+            if (value && !string.IsNullOrEmpty(pendingNoticeApp)) ShowPanelNoticeChip(pendingNoticeApp);
+            if (!value) HidePanelNoticeChip();
             // 收起后如果正在放歌：胶囊变宽成迷你播放器（等形变播完再变，避免两段动画打架）
             if (value) UpdateCapsuleMusicMode();
             else Motion.Delay(380, delegate { UpdateCapsuleMusicMode(); });
