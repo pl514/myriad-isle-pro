@@ -139,7 +139,7 @@ namespace IslandShot
             PreviewMouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
             {
                 if (!capsuleNoticeActive) return;
-                if (!IsCapsuleNoticeSource(e.OriginalSource)) return;
+                MessengerLog("notice click -> " + capsuleNoticeApp);
                 string app = capsuleNoticeApp;
                 e.Handled = true;
                 OpenMessengerApp(app);
