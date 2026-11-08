@@ -34,6 +34,8 @@ namespace IslandShot
         EditorTool currentTool = EditorTool.Select;
         bool textEditingNew;
         Rect textBoxRect;
+        Border inputPanel;
+        TextBlock inputTitle;
         Color strokeColor = Color.FromRgb(255, 69, 58);
         Color fillColor = Color.FromArgb(0, 0, 0, 0);
         double thickness = 3;
@@ -85,23 +87,27 @@ namespace IslandShot
 
             textInput = new TextBox
             {
-                Visibility = Visibility.Collapsed,
-                MinWidth = 160,
-                FontSize = 18,
-                Background = new SolidColorBrush(Color.FromRgb(34, 38, 48)),
+                MinWidth = 240,
+                Width = 340,
+                Height = 110,
+                FontSize = 16,
+                Background = new SolidColorBrush(Color.FromRgb(30, 34, 44)),
                 Foreground = new SolidColorBrush(TextColor),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(90, 170, 255)),
+                CaretBrush = new SolidColorBrush(TextColor),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(60, 66, 82)),
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(4, 2, 4, 2),
-                AcceptsReturn = false
+                Padding = new Thickness(8, 6, 8, 6),
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
             textInput.KeyDown += TextInputKeyDown;
-            textInput.LostFocus += delegate { CommitTextInput(); };
 
+            inputPanel = BuildInputPanel();
             var canvasHost = new Grid();
             canvasHost.Children.Add(surface);
             var inputLayer = new Canvas { IsHitTestVisible = true };
-            inputLayer.Children.Add(textInput);
+            inputLayer.Children.Add(inputPanel);
             canvasHost.Children.Add(inputLayer);
 
             BuildToolbar();
@@ -608,33 +614,101 @@ namespace IslandShot
         }
 
         // ------------------------------------------------------------ 文字输入
+        Border BuildInputPanel()
+        {
+            var stack = new StackPanel();
+
+            inputTitle = new TextBlock
+            {
+                Text = "输入文字",
+                FontSize = 12,
+                Foreground = new SolidColorBrush(MutedColor),
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            stack.Children.Add(inputTitle);
+            stack.Children.Add(textInput);
+
+            var hint = new TextBlock
+            {
+                Text = "Ctrl+Enter 确定 · Esc 取消",
+                FontSize = 10.5,
+                Foreground = new SolidColorBrush(Color.FromRgb(120, 130, 150)),
+                Margin = new Thickness(0, 6, 0, 0)
+            };
+            stack.Children.Add(hint);
+
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            var cancel = BarButton("取消", delegate { CancelTextInput(); });
+            cancel.Padding = new Thickness(18, 6, 18, 6);
+            var ok = BarButton("确定", delegate { CommitTextInput(); });
+            ok.Padding = new Thickness(18, 6, 18, 6);
+            ok.Background = new SolidColorBrush(Color.FromRgb(58, 96, 160));
+            buttons.Children.Add(cancel);
+            buttons.Children.Add(ok);
+            stack.Children.Add(buttons);
+
+            return new Border
+            {
+                Visibility = Visibility.Collapsed,
+                Background = new SolidColorBrush(Color.FromRgb(23, 26, 34)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(64, 72, 90)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(14),
+                Child = stack
+            };
+        }
+
         void OnTextRequested(Rect box)
         {
             textBoxRect = box;
             TextItem existing = surface.Selected as TextItem;
             textEditingNew = existing == null || surface.PendingText != null;
             textInput.Text = existing != null ? existing.Text : "";
+            inputTitle.Text = textEditingNew ? "输入文字" : "编辑文字";
 
-            double width = Math.Max(160, box.Width * surface.Scale);
-            textInput.Width = Math.Min(Math.Max(160, surface.ActualWidth - 40), width);
-            textInput.Visibility = Visibility.Visible;
+            inputPanel.Visibility = Visibility.Visible;
+            inputPanel.UpdateLayout();
 
-            Canvas.SetLeft(textInput, box.X * surface.Scale + surface.Offset.X);
-            Canvas.SetTop(textInput, box.Y * surface.Scale + surface.Offset.Y);
+            double scale = surface.Scale;
+            double px = box.X * scale + surface.Offset.X;
+            double py = box.Y * scale + surface.Offset.Y + Math.Max(24, box.Height * scale) + 8;
+
+            double panelWidth = inputPanel.ActualWidth > 1 ? inputPanel.ActualWidth : 380;
+            double panelHeight = inputPanel.ActualHeight > 1 ? inputPanel.ActualHeight : 230;
+
+            if (px + panelWidth > surface.ActualWidth - 10) px = Math.Max(10, surface.ActualWidth - panelWidth - 10);
+            if (py + panelHeight > surface.ActualHeight - 10) py = Math.Max(10, py - panelHeight - Math.Max(40, box.Height * scale) - 16);
+
+            Canvas.SetLeft(inputPanel, Math.Max(10, px));
+            Canvas.SetTop(inputPanel, Math.Max(10, py));
+
             textInput.Focus();
             textInput.SelectAll();
         }
 
         void TextInputKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Enter) { CommitTextInput(); e.Handled = true; }
-            else if (e.Key == Key.Escape) { textInput.Visibility = Visibility.Collapsed; e.Handled = true; }
+            if (e.Key == Key.Escape) { CancelTextInput(); e.Handled = true; return; }
+            bool control = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            if (e.Key == Key.Enter && control) { CommitTextInput(); e.Handled = true; }
+        }
+
+        void CancelTextInput()
+        {
+            inputPanel.Visibility = Visibility.Collapsed;
+            surface.CancelPendingText();
         }
 
         void CommitTextInput()
         {
-            if (textInput.Visibility != Visibility.Visible) return;
-            textInput.Visibility = Visibility.Collapsed;
+            if (inputPanel.Visibility != Visibility.Visible) return;
+            inputPanel.Visibility = Visibility.Collapsed;
             surface.CommitText(textInput.Text, textBoxRect, textEditingNew);
 
             // 输完字切到选择工具：这样马上能看到文本框边框，也能拖动/改宽度

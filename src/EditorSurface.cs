@@ -583,6 +583,17 @@ namespace IslandShot
         }
 
         // ------------------------------------------------------------ 文本
+        public void CancelPendingText()
+        {
+            if (PendingText != null)
+            {
+                Items.Remove(PendingText);
+                PendingText = null;
+                InvalidateVisual();
+                RaiseChanged();
+            }
+        }
+
         public void CommitText(string text, Rect box, bool isNew)
         {
             TextItem item = PendingText;
