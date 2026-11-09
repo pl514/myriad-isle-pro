@@ -446,6 +446,16 @@ namespace IslandShot
                     Log("timeout, last len=" + last.Length);
                     throw new InvalidOperationException("网页版 120 秒没有新内容，可能被限流了，先用 API。");
                 }
+                // 一直读不到内容：先 dump 一次页面结构（方便定位改版），20 秒直接放弃
+                if (last.Length == 0 && elapsed > 3 && !dbDumped && site.Kind == "db")
+                {
+                    dbDumped = true;
+                    try { Log("dump: " + await RunStringAsync(DbDumpJs())); } catch (Exception) { }
+                }
+                if (last.Length == 0 && elapsed > 20)
+                {
+                    throw new InvalidOperationException("网页版 20 秒没读到回答（豆包页面结构可能变了）。先用 API。");
+                }
 
                 string current;
                 if (site.Kind == "db")
@@ -519,6 +529,7 @@ namespace IslandShot
 
         string[] attachedFiles;
         int dbCalls;
+        bool dbDumped;
 
         // 把本地图片塞进网页的 <input type=file> —— 走 CDP 的 DOM.setFileInputFiles，
         // 普通 JS 改不了 file input 的值（浏览器安全限制）。
@@ -763,6 +774,13 @@ namespace IslandShot
                 // 结构 B：整段会话挤在同一个容器里（恢复的长对话会变成这样）—— 取"新增的尾巴"
                 candidate = text.Substring(previous.Length).Trim();
             }
+            else if (previous != null && text != previous && text.Length >= 8)
+            {
+                // 结构 C：列表被虚拟化/重排，块数不涨、也不再是前缀。
+                // 这时只要"最后一行变了"就当新内容，否则会一直等不到（实测问天气卡满 120 秒）。
+                Log("db structure C: count=" + count + " len=" + text.Length + " prev=" + previous.Length);
+                candidate = text;
+            }
             else
             {
                 return "";
@@ -798,6 +816,16 @@ namespace IslandShot
                    "var cl=(b.className&&b.className.toString?b.className.toString():'');" +
                    "if(cl.indexOf('stop')>=0&&t.length===0)return '1';" +
                    "}return '0';})()";
+        }
+
+        // 卡住时把消息列表结构写进日志：哪个容器、几个子节点、类名和文字长度
+        string DbDumpJs()
+        {
+            return "(function(){var l=" + DbListJs + ";if(!l)return 'no-list';" +
+                   "var s='list.class=['+(l.className||'')+'] children='+l.children.length;" +
+                   "for(var i=0;i<l.children.length&&i<8;i++){var c=l.children[i];" +
+                   "s+=' || ['+i+'] cls=['+((c.className||'').toString().slice(0,40))+'] len='+((c.innerText||'').trim().length);}" +
+                   "return s;})()";
         }
 
         string AnswerTextJs(int index)
