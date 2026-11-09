@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -303,6 +304,8 @@ namespace IslandShot
     // ---------------------------------------------------------------------
     internal static class ChatBackends
     {
+        static readonly Dictionary<string, WebBackend> webCache = new Dictionary<string, WebBackend>(StringComparer.OrdinalIgnoreCase);
+
         internal static IChatBackend Resolve(AiModelConfig model)
         {
             return Resolve(model, null);
@@ -325,7 +328,17 @@ namespace IslandShot
             if (model.BaseUrl.StartsWith("web://", StringComparison.OrdinalIgnoreCase))
             {
                 string siteId = model.BaseUrl.Substring(6).Trim().TrimEnd('/');
-                return new WebBackend(WebSites.Find(siteId));
+                // 复用同一个 WebBackend：每次新建都会重新初始化 WebView2（实测多约 4 秒）
+                lock (webCache)
+                {
+                    WebBackend cached;
+                    if (!webCache.TryGetValue(siteId, out cached))
+                    {
+                        cached = new WebBackend(WebSites.Find(siteId));
+                        webCache[siteId] = cached;
+                    }
+                    return cached;
+                }
             }
 
             string key = null;
