@@ -760,34 +760,39 @@ namespace IslandShot
 
             if (text.Length == 0) return "";
 
+            string question = (prompt == null ? "" : prompt).Trim();
+            // 关键守卫：必须先在页面里看到"我们刚发的提问"，才允许把文本当成新回答。
+            // 否则列表重排/虚拟化时会把上一条回答当成新回答推出去（实测踩到）。
+            int questionAt = question.Length == 0 ? -1 : text.LastIndexOf(question, StringComparison.Ordinal);
+            bool hasQuestion = questionAt >= 0;
+
             string candidate;
-            if (count >= before + 2)
+            if (count >= before + 2 && previous != null && text != previous)
             {
                 // 结构 A：一行一条消息 —— 最后一行就是这次的回答
-                if (previous != null && text == previous) return "";
                 candidate = text;
+            }
+            else if (hasQuestion)
+            {
+                // 结构 B/C：提问和回答在同一块里，或者列表被重排。
+                // 取提问后面的内容；还没有内容时返回空，继续等。
+                string tail = text.Substring(questionAt + question.Length).Trim();
+                if (tail.Length < 2) return "";
+                candidate = tail;
             }
             else if (previous != null && previous.Length > 0
                      && text.Length > previous.Length
                      && text.StartsWith(previous, StringComparison.Ordinal))
             {
-                // 结构 B：整段会话挤在同一个容器里（恢复的长对话会变成这样）—— 取"新增的尾巴"
+                // 纯粹靠前缀增长的情况（老结构），也要求比上一条长
                 candidate = text.Substring(previous.Length).Trim();
-            }
-            else if (previous != null && text != previous && text.Length >= 8)
-            {
-                // 结构 C：列表被虚拟化/重排，块数不涨、也不再是前缀。
-                // 这时只要"最后一行变了"就当新内容，否则会一直等不到（实测问天气卡满 120 秒）。
-                Log("db structure C: count=" + count + " len=" + text.Length + " prev=" + previous.Length);
-                candidate = text;
             }
             else
             {
                 return "";
             }
 
-            string question = (prompt == null ? "" : prompt).Trim();
-            if (question.Length > 0 && candidate.StartsWith(question, StringComparison.Ordinal))
+            if (candidate.StartsWith(question, StringComparison.Ordinal))
             {
                 candidate = candidate.Substring(question.Length).Trim();
             }
