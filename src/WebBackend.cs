@@ -275,7 +275,7 @@ namespace IslandShot
                 Log("restore web thread " + ThreadUrl);
                 view.CoreWebView2.Navigate(ThreadUrl);
                 await WaitDocumentReadyAsync(token);
-                await Task.Delay(1500);   // 等历史消息渲染完
+                await Task.Delay(800);   // 等历史消息渲染完（原来 1500，先 800 试）
                 return;
             }
 
@@ -356,17 +356,28 @@ namespace IslandShot
 
         internal async Task AskAsync(string prompt, Action<string> onDelta, CancellationToken token)
         {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            long lastMark = 0;
+            Action<string> mark = delegate(string stage)
+            {
+                Log("t=" + clock.ElapsedMilliseconds + "ms (+" + (clock.ElapsedMilliseconds - lastMark) + ") " + stage);
+                lastMark = clock.ElapsedMilliseconds;
+            };
+
             await EnsureReadyAsync(token);
             await EnsureLoggedInAsync(token);
+            mark("ready");
 
             // 0) 胶囊会话 ↔ 网页会话：有记录就回那条，没有就开一条新的
             await EnsureThreadAsync(token);
+            mark("thread");
 
             // 1) 先确保网页那边停下来：用户按 Esc 只停了我们这边的读取，网页还在继续生成。
             //    这里直接点一次"停止/发送"位置那个按钮 —— 生成中就停掉，空闲时输入框是空的，
             //    点一下不会发出空消息。（比"等文本不再变化"可靠：豆包的文本一直在变）
             await StopPageAsync();
-            await Task.Delay(500);
+            await Task.Delay(200);
+            mark("stop-page");
 
             // 有图片就先塞进网页的文件输入框，等它上传完再发文字
             if (attachedFiles != null && attachedFiles.Length > 0)
@@ -387,15 +398,16 @@ namespace IslandShot
             // 于是把"旧回答"当成新回答推出去（实测踩到）。
             {
                 int lastCount = -1;
-                DateTime settle = DateTime.UtcNow.AddSeconds(6);
+                DateTime settle = DateTime.UtcNow.AddSeconds(3);
                 while (DateTime.UtcNow < settle)
                 {
                     int c = await RunIntAsync(CountJs());
                     if (c == lastCount) break;
                     lastCount = c;
-                    await Task.Delay(400);
+                    await Task.Delay(200);
                 }
                 Log("settled count=" + lastCount);
+                mark("settle " + lastCount);
             }
 
             int before = await RunIntAsync(CountJs());
@@ -410,21 +422,26 @@ namespace IslandShot
             Log("type=" + typed + " send=" + sendResult);
 
             // 发出去之后 URL 会变成这条会话的地址，记下来（下次回到同一条）
-            await Task.Delay(1200);
+            await Task.Delay(250);
             CaptureThreadUrl();
+            mark("sent");
             if (sendResult != null && sendResult.StartsWith("NO-SEND", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("网页版没找到发送按钮（可能改版了），先用 API。");
             }
 
             // 3) 轮询最后一个回答块，按增量推给前端
+            //    结束判定优先看"页面还在不在生成"（停止按钮是否还在）：
+            //    停止按钮消失 + 文本没变 → 立刻结束，不再干等 5 个轮询。
             string last = "";
             int stable = 0;
             int polls = 0;
+            bool firstContent = false;
             DateTime started = DateTime.UtcNow;
             while (!token.IsCancellationRequested)
             {
-                if ((DateTime.UtcNow - started).TotalSeconds > 120)
+                double elapsed = (DateTime.UtcNow - started).TotalSeconds;
+                if (elapsed > 120)
                 {
                     Log("timeout, last len=" + last.Length);
                     throw new InvalidOperationException("网页版 120 秒没有新内容，可能被限流了，先用 API。");
@@ -441,8 +458,13 @@ namespace IslandShot
                     if (current == null) current = "";
                 }
                 polls++;
-                if (polls <= 80) Log("poll " + polls + " len=" + current.Length);
-                if (polls % 5 == 0) CaptureThreadUrl();
+                if (polls <= 80) Log("poll " + polls + " len=" + current.Length + " t=" + (int)elapsed + "s");
+
+                if (!firstContent && current.Length > 0)
+                {
+                    firstContent = true;
+                    mark("first-content len=" + current.Length);
+                }
 
                 if (current != last)
                 {
@@ -461,10 +483,29 @@ namespace IslandShot
                 else
                 {
                     stable++;
-                    if (stable >= 5 && last.Length > 0) return;   // 约 1.5 秒没变化 → 结束
                 }
 
-                await Task.Delay(300);
+                // 生成状态每 3 个轮询查一次（多一次 IPC 的代价，换更快的收尾）
+                bool generating = true;
+                if (stable >= 2 && polls % 3 == 0)
+                {
+                    try { generating = (await RunStringAsync(GeneratingJs())) == "1"; }
+                    catch (Exception) { generating = true; }
+                }
+
+                if (stable >= 2 && last.Length > 0 && !generating)
+                {
+                    mark("finished (idle, len=" + last.Length + ")");
+                    return;   // 页面已经生成完 → 立刻结束
+                }
+                if (stable >= 6 && last.Length > 0)
+                {
+                    mark("finished (stable, len=" + last.Length + ")");
+                    return;   // 兜底：页面没有停止按钮可判断时，约 1 秒没变化就结束
+                }
+
+                // 前 4 秒密集轮询（首字更快出来），之后放慢省 CPU
+                await Task.Delay(elapsed < 4 ? 150 : 300);
             }
             token.ThrowIfCancellationRequested();
         }
@@ -741,6 +782,22 @@ namespace IslandShot
             }
             if (LooksLikeStatus(candidate)) return "";
             return TrimTailNoise(candidate);
+        }
+
+        // 页面是否还在生成：站点的"停止"按钮还在 → 还在生成。
+        // 比"文本连续几次不变"快得多（豆包生成长回答时中间会停顿）。
+        string GeneratingJs()
+        {
+            return "(function(){var bs=document.querySelectorAll('button,[role=button],[aria-label]');" +
+                   "for(var i=0;i<bs.length;i++){var b=bs[i];" +
+                   "var t=(b.innerText||b.textContent||'').trim();" +
+                   "if(t==='停止'||t==='停止生成'||t==='停止回答'||t==='Stop'||t==='Stop generating')return '1';" +
+                   "var a=(b.getAttribute&&b.getAttribute('aria-label'))||'';" +
+                   "if(a.indexOf('停止')>=0)return '1';" +
+                   "var al=a.toLowerCase();if(al.indexOf('stop generating')>=0||al==='stop')return '1';" +
+                   "var cl=(b.className&&b.className.toString?b.className.toString():'');" +
+                   "if(cl.indexOf('stop')>=0&&t.length===0)return '1';" +
+                   "}return '0';})()";
         }
 
         string AnswerTextJs(int index)
