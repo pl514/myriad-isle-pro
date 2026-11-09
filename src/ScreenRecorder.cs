@@ -25,15 +25,71 @@ namespace IslandShot
                 Error = "没有找到 ffmpeg.exe，无法录制 MP4。请安装 ffmpeg 并加入 PATH。";
                 return false;
             }
+            useDda = SupportsDdaGrab(ffmpeg);
             try
             {
                 string directory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "Recordings");
                 Directory.CreateDirectory(directory);
                 output = Path.Combine(directory, "录屏_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".mp4");
+            }
+            catch (Exception error)
+            {
+                Error = "录屏目录创建失败：" + error.Message;
+                return false;
+            }
+            return StartWith(ffmpeg, useDda);
+        }
+
+        bool useDda;
+        bool retriedLegacy;
+
+        // ddagrab 用桌面复制接口抓屏，光标由系统合成，不会像 gdigrab 那样一帧有一帧没有（闪烁）
+        static bool? ddaSupported;
+
+        static bool SupportsDdaGrab(string ffmpeg)
+        {
+            if (ddaSupported.HasValue) return ddaSupported.Value;
+            try
+            {
                 var info = new ProcessStartInfo
                 {
                     FileName = ffmpeg,
-                    Arguments = "-y -hide_banner -loglevel error -f gdigrab -framerate 30 -draw_mouse 1 -i desktop -c:v libx264 -preset veryfast -pix_fmt yuv420p -movflags +faststart \"" + output + "\"",
+                    Arguments = "-hide_banner -filters",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (var probe = Process.Start(info))
+                {
+                    string text = probe.StandardOutput.ReadToEnd() + probe.StandardError.ReadToEnd();
+                    probe.WaitForExit(5000);
+                    ddaSupported = text.IndexOf("ddagrab", StringComparison.OrdinalIgnoreCase) >= 0;
+                }
+            }
+            catch (Exception) { ddaSupported = false; }
+            return ddaSupported.Value;
+        }
+
+        string BuildArguments(string ffmpeg, bool dda)
+        {
+            string common = " -c:v libx264 -preset veryfast -pix_fmt yuv420p -movflags +faststart \"" + output + "\"";
+            if (dda)
+            {
+                return "-y -hide_banner -loglevel error -f lavfi -i \"ddagrab=framerate=30:draw_mouse=1\""
+                       + " -vf \"hwdownload,format=bgra\"" + common;
+            }
+            return "-y -hide_banner -loglevel error -f gdigrab -framerate 30 -draw_mouse 1 -i desktop" + common;
+        }
+
+        bool StartWith(string ffmpeg, bool dda)
+        {
+            try
+            {
+                var info = new ProcessStartInfo
+                {
+                    FileName = ffmpeg,
+                    Arguments = BuildArguments(ffmpeg, dda),
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardInput = true,
@@ -55,6 +111,7 @@ namespace IslandShot
                 }
                 process.BeginErrorReadLine();
                 Recording = true;
+                startedAt = DateTime.UtcNow;
                 return true;
             }
             catch (Exception error)
@@ -64,6 +121,9 @@ namespace IslandShot
                 return false;
             }
         }
+
+        DateTime startedAt;
+
 
         public void Stop()
         {
@@ -103,6 +163,18 @@ namespace IslandShot
                 ok = File.Exists(path) && new FileInfo(path).Length > 1024;
             }
             catch (Exception) { }
+
+            // ddagrab 在远程桌面/某些显卡驱动上会启动即失败：自动退回 gdigrab，别让用户白录一次
+            double seconds = (DateTime.UtcNow - startedAt).TotalSeconds;
+            if (!ok && useDda && !retriedLegacy && seconds < 5)
+            {
+                retriedLegacy = true;
+                useDda = false;
+                process = null;
+                string ffmpeg = FindFfmpeg();
+                if (!string.IsNullOrEmpty(ffmpeg) && StartWith(ffmpeg, false)) return;
+            }
+
             if (!ok) path = null;
             Recording = false;
             process = null;
