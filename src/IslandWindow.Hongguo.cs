@@ -59,7 +59,13 @@ namespace IslandShot
 
         void ToggleHongguoWindow()
         {
-            // 还没打开过：热键直接当"启动"用，省得先去面板里点球
+            // 有外部客户端就优先控制它（全集在里面）
+            if (HongguoAppOverlay.Available)
+            {
+                HongguoAppOverlay.Toggle();
+                return;
+            }
+            // 没有客户端：用内置网页窗口
             if (hongguoWindow == null)
             {
                 ShowHongguoWindow();
