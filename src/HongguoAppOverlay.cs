@@ -34,6 +34,11 @@ namespace IslandShot
         static Process process;
         static IntPtr hwnd;
 
+        static string OrigRectFile
+        {
+            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "hongguo-orig.txt"); }
+        }
+
         static string StateFile
         {
             get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "hongguo-app.txt"); }
@@ -94,6 +99,8 @@ namespace IslandShot
             try
             {
                 SaveRect();
+                RestoreOriginalGeometry();   // 隐藏时恢复成它自己的尺寸：之后直接双击打开就是原样
+                overlayActive = false;
                 if (hwnd != IntPtr.Zero && IsWindow(hwnd)) ShowWindow(hwnd, SwHide);
                 KeeperStop();
             }
@@ -200,7 +207,7 @@ namespace IslandShot
                     if (parts.Length >= 4
                         && double.TryParse(parts[0], out left) && double.TryParse(parts[1], out top)
                         && double.TryParse(parts[2], out width) && double.TryParse(parts[3], out height)
-                        && width > 300 && height > 200)
+                        && width > 300 && height > 200 && width <= 780)
                     {
                         return new Rect(left, top, width, height);
                     }
@@ -209,8 +216,8 @@ namespace IslandShot
             catch (Exception) { }
 
             Rect work = SystemParameters.WorkArea;
-            double w = Math.Max(640, Math.Min(1100, work.Height * 0.62));
-            double h = Math.Round(w * 9.0 / 16.0);
+            double w = 720;
+            double h = 480;
             double x = work.Right - w - 60;
             double y = work.Top + 80;
             return new Rect(x, y, w, h);
@@ -250,6 +257,8 @@ namespace IslandShot
                     {
                         SetWindowLong(target, -20, ex | 0x00000008);
                     }
+                    // 小窗模式下每轮都把位置/尺寸压回来（客户端会自己恢复宽度）
+                    if (overlayActive) ApplyRectTarget(target);
                     // 再重新声明一次置顶（不移动、不改大小、不抢焦点）
                     SetWindowPos(target, HwndTopmost, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
                 }
@@ -268,6 +277,7 @@ namespace IslandShot
             {
                 RECT current;
                 if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out current)) return;
+                if ((current.Right - current.Left) > 780) return;   // 大窗（原本尺寸）不记
                 string folder = Path.GetDirectoryName(StateFile);
                 if (!string.IsNullOrEmpty(folder) && !Directory.Exists(folder)) Directory.CreateDirectory(folder);
                 File.WriteAllText(StateFile,
@@ -335,6 +345,42 @@ namespace IslandShot
         }
 
         // 启动 + 定位 + 去标题栏，但不显示（配合形变动画）
+        // 第一次压小之前记下它原本的窗口矩形：直接双击打开时还原成原样
+        static void SaveOriginalOnce()
+        {
+            try
+            {
+                if (File.Exists(OrigRectFile)) return;
+                RECT current;
+                if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out current)) return;
+                if ((current.Right - current.Left) > 780) return;   // 大窗（原本尺寸）不记
+                int w = current.Right - current.Left;
+                int h = current.Bottom - current.Top;
+                if (w < 300 || h < 200) return;
+                File.WriteAllText(OrigRectFile, current.Left + "," + current.Top + "," + w + "," + h);
+            }
+            catch (Exception) { }
+        }
+
+        // 还原成它自己的窗口大小（在隐藏状态下调用，让它退出时保存的也是原尺寸）
+        internal static void RestoreOriginalGeometry()
+        {
+            try
+            {
+                if (!File.Exists(OrigRectFile)) return;
+                string[] parts = File.ReadAllText(OrigRectFile).Trim().Split(',');
+                double left, top, width, height;
+                if (parts.Length < 4) return;
+                if (!double.TryParse(parts[0], out left) || !double.TryParse(parts[1], out top)) return;
+                if (!double.TryParse(parts[2], out width) || !double.TryParse(parts[3], out height)) return;
+                if (width < 300 || height < 200) return;
+                IntPtr target = hwnd;
+                if (target == IntPtr.Zero || !IsWindow(target)) return;
+                SetWindowPos(target, IntPtr.Zero, (int)left, (int)top, (int)width, (int)height, 0x0001 | 0x0004 | 0x0010);
+            }
+            catch (Exception) { }
+        }
+
         internal static void Prepare(Rect rect)
         {
             try
@@ -349,6 +395,7 @@ namespace IslandShot
                 }
                 if (hwnd == IntPtr.Zero) return;
                 System.Threading.Thread.Sleep(1200);   // 等客户端初始化完再改样式，太早它会重建窗口
+                SaveOriginalOnce();   // 压小之前先记下它原本的窗口大小
                 SetRect(rect);
                 StripCaption();
                 ShowWindow(hwnd, SwHide);
@@ -414,6 +461,87 @@ namespace IslandShot
         }
 
         const int SwShowNoActivate = 4;
+
+        // 直接双击打开的还原：客户端会把"我们压小后的尺寸"记成自己的配置，
+        // 所以当它不是由小窗打开时，把它掰回一个正常大小（记过的原尺寸，或默认的 1000x700）。
+        static bool overlayActive;
+        static int overlayPid;
+        static System.Threading.Timer directWatcher;
+
+        internal static void StartDirectLaunchWatcher()
+        {
+            if (directWatcher != null) return;
+            directWatcher = new System.Threading.Timer(delegate
+            {
+                try
+                {
+                    if (overlayActive) return;
+                    if (process == null || process.HasExited)
+                    {
+                        // 用户直接双击打开的：我们这边没有进程对象，按名字找一下
+                        Process found = null;
+                        foreach (Process item in Process.GetProcessesByName("红果短剧")) { found = item; break; }
+                        if (found == null) return;
+                        process = found;
+                    }
+                    if (process == null || process.HasExited) return;
+                    process.Refresh();
+                    IntPtr target = process.MainWindowHandle;
+                    if (target == IntPtr.Zero || !IsWindow(target)) return;
+                    if (!IsWindowVisible(target)) return;
+
+                    RECT current;
+                    if (!GetWindowRect(target, out current)) return;
+                    WatchLog("see w=" + (current.Right - current.Left) + " overlay=" + overlayActive);
+                    int w = current.Right - current.Left;
+                    int h = current.Bottom - current.Top;
+                    if (w > 760) return;   // 已经是大窗，不用管
+
+                    Rect orig = LoadOriginalOrFallback();
+                    SetWindowPos(target, IntPtr.Zero, (int)orig.X, (int)orig.Y, (int)orig.Width, (int)orig.Height, 0x0004 | 0x0010);   // NOZORDER | NOACTIVATE（0x0001 是 NOSIZE，千万别带）
+                }
+                catch (Exception) { }
+            }, null, 2500, 2500);
+        }
+
+        static void WatchLog(string message)
+        {
+            try
+            {
+                string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+                if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+                File.AppendAllText(Path.Combine(folder, "hongguo-watch.log"),
+                    DateTime.Now.ToString("HH:mm:ss.fff") + " " + message + Environment.NewLine);
+            }
+            catch (Exception) { }
+        }
+
+        static Rect LoadOriginalOrFallback()
+        {
+            try
+            {
+                if (File.Exists(OrigRectFile))
+                {
+                    string[] parts = File.ReadAllText(OrigRectFile).Trim().Split(',');
+                    double l, tp, w, h;
+                    if (parts.Length >= 4 && double.TryParse(parts[0], out l) && double.TryParse(parts[1], out tp)
+                        && double.TryParse(parts[2], out w) && double.TryParse(parts[3], out h) && w > 760 && h > 400)
+                    {
+                        return new Rect(l, tp, w, h);
+                    }
+                }
+            }
+            catch (Exception) { }
+            Rect work = SystemParameters.WorkArea;
+            double width = Math.Min(1100, work.Width * 0.62);
+            double height = Math.Min(760, work.Height * 0.72);
+            return new Rect(work.Left + (work.Width - width) / 2, work.Top + (work.Height - height) / 2, width, height);
+        }
+
+        internal static void SetOverlayActive(bool active)
+        {
+            overlayActive = active;
+        }
 
         internal static void Reset()
         {

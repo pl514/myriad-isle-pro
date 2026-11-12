@@ -14,6 +14,7 @@ namespace IslandShot
         {
             Rect to = HongguoAppOverlay.PlannedRect();
 
+            HongguoAppOverlay.SetOverlayActive(true);   // 这次是小窗模式，别还原成原本大小
             if (expanded) SetExpanded(false);
             SetToolRunning(FindTool("hongguo"), true);
 
@@ -58,6 +59,7 @@ namespace IslandShot
         // 收起（不退出进程）
         void HideHongguoOverlay()
         {
+            HongguoAppOverlay.SetOverlayActive(false);
             HongguoAppOverlay.SaveRect();
             HongguoAppOverlay.Hide();
             SetToolRunning(FindTool("hongguo"), false);

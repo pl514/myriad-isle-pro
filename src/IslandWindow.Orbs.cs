@@ -329,6 +329,31 @@ namespace IslandShot
                 return canvas;
             }
 
+            if (id == "hongguo")
+            {
+                // 红果：圆角屏幕 + 播放三角（比默认的音符更贴合"看剧"）
+                var frame = new System.Windows.Shapes.Rectangle
+                {
+                    Width = 12.4,
+                    Height = 9.8,
+                    RadiusX = 2.6,
+                    RadiusY = 2.6,
+                    Stroke = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255)),
+                    StrokeThickness = 1.5
+                };
+                Canvas.SetLeft(frame, 1.8);
+                Canvas.SetTop(frame, 3.1);
+                canvas.Children.Add(frame);
+
+                var play = new Path
+                {
+                    Fill = new SolidColorBrush(Color.FromArgb(250, 255, 255, 255)),
+                    Data = Geometry.Parse("M6.5,5.4 L6.5,10.6 L10.9,8 Z")
+                };
+                canvas.Children.Add(play);
+                return canvas;
+            }
+
             var path = new Path
             {
                 Fill = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255)),

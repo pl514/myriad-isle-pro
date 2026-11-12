@@ -75,6 +75,7 @@ namespace IslandShot
                     }), DispatcherPriority.Background);
                 });
                 audioWatcher.Start();
+                HongguoAppOverlay.StartDirectLaunchWatcher();   // 红果直接打开时还原成正常大小
 
             }
             catch (Exception ex)
