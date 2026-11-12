@@ -115,6 +115,7 @@ namespace IslandShot
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 8, 0)
             };
+            buttons.Children.Add(BuildTextHeaderButton("App 版", "网页版只有前几集；用它打开本地红果播放器看全集", LaunchExternalPlayer));
             buttons.Children.Add(BuildHeaderButton(false, "收起到后台（跟热键一样）", ToggleVisible));
             buttons.Children.Add(BuildHeaderButton(true, "关闭并飞回胶囊", ExitPlayer));
             headerGrid.Children.Add(buttons);
@@ -190,6 +191,82 @@ namespace IslandShot
             button.MouseLeave += delegate { button.Background = Brushes.Transparent; };
             button.MouseLeftButtonUp += delegate { click(); };
             return button;
+        }
+
+        Border BuildTextHeaderButton(string text, string tip, Action click)
+        {
+            var label = new TextBlock
+            {
+                Text = text,
+                FontSize = 10.5,
+                Foreground = new SolidColorBrush(Color.FromRgb(232, 236, 246)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            var button = new Border
+            {
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(8, 4, 8, 4),
+                Margin = new Thickness(6, 0, 0, 0),
+                Cursor = Cursors.Hand,
+                ToolTip = tip,
+                Background = new SolidColorBrush(Color.FromArgb(40, 255, 106, 61)),
+                Child = label
+            };
+            button.MouseEnter += delegate { button.Background = new SolidColorBrush(Color.FromArgb(70, 255, 106, 61)); };
+            button.MouseLeave += delegate { button.Background = new SolidColorBrush(Color.FromArgb(40, 255, 106, 61)); };
+            button.MouseLeftButtonUp += delegate { click(); };
+            return button;
+        }
+
+        // 网页版只放出前几集，后面的必须用官方/第三方客户端；这里启动本地红果播放器
+        void LaunchExternalPlayer()
+        {
+            try
+            {
+                string path = ExternalPlayerPath;
+                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                {
+                    ShowStatus("没找到本地红果播放器。\n把路径写进 data\\hongguo-player.txt，或把 红果短剧.exe 放到程序目录。");
+                    return;
+                }
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = path,
+                    WorkingDirectory = Path.GetDirectoryName(path),
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                ShowStatus("启动本地播放器失败：" + ex.Message);
+            }
+        }
+
+        static string ExternalPlayerPath
+        {
+            get
+            {
+                try
+                {
+                    string config = Path.Combine(AiConfigStore.DataDir, "hongguo-player.txt");
+                    if (File.Exists(config))
+                    {
+                        string custom = File.ReadAllText(config).Trim().Trim('"');
+                        if (custom.Length > 0) return custom;
+                    }
+                }
+                catch (Exception) { }
+                string[] guesses =
+                {
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "红果短剧.exe"),
+                    @"C:\桌面\红果短剧\红果短剧.exe",
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "红果短剧", "红果短剧.exe")
+                };
+                foreach (string guess in guesses) { if (File.Exists(guess)) return guess; }
+                return "";
+            }
         }
 
         // ------------------------------------------------------------ 显隐

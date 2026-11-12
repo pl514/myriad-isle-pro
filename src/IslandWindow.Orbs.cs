@@ -98,7 +98,7 @@ namespace IslandShot
             // 球的容器：宽度固定，避免展开/收回时右边按钮位移
             orbSlot = new Grid
             {
-                Width = 3 * 28 + 3 * 8,
+                Width = Math.Max(3, orbTools.Count) * 28 + Math.Max(3, orbTools.Count) * 8,
                 Height = 28,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(10, 0, 0, 0),
