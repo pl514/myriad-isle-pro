@@ -48,7 +48,6 @@ namespace IslandShot
         uint shellHookMessage;
         bool shellHookRegistered;
         AudioWatcher audioWatcher;
-        DshWatcher dshWatcher;
 
         // 把提示层挂到胶囊里（胶囊内容是一个 Grid，里面已有 layers + 迷你播放器）
         void AttachCapsuleNotice()
@@ -77,20 +76,6 @@ namespace IslandShot
                 });
                 audioWatcher.Start();
 
-            // DSH 干活结束 → 胶囊提醒
-            try
-            {
-                dshWatcher = new DshWatcher(delegate
-                {
-                    Dispatcher.BeginInvoke(new Action(delegate
-                    {
-                        MessengerLog("dsh finished");
-                        ShowCapsuleNotice("dsh");
-                    }), DispatcherPriority.Background);
-                });
-                dshWatcher.Start();
-            }
-            catch (Exception) { }
             }
             catch (Exception ex)
             {
@@ -100,7 +85,6 @@ namespace IslandShot
             Closed += delegate
             {
                 if (audioWatcher != null) audioWatcher.Dispose();
-        if (dshWatcher != null) dshWatcher.Dispose();
             };
         }
 
@@ -319,79 +303,11 @@ namespace IslandShot
         [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder name, ref int size);
 
-        // 低权限进程读不到高权限窗口的标题（GetWindowText 返回空），所以改成
-        // 类名 Chrome_WidgetWin_1 + 进程可执行文件路径来识别 DSH。
-        static string ProcessImagePath(int pid)
-        {
-            IntPtr handle = OpenProcess(0x1000, false, pid);   // PROCESS_QUERY_LIMITED_INFORMATION
-            if (handle == IntPtr.Zero) return "";
-            try
-            {
-                var buffer = new StringBuilder(1024);
-                int size = buffer.Capacity;
-                if (!QueryFullProcessImageName(handle, 0, buffer, ref size)) return "";
-                return buffer.ToString(0, size);
-            }
-            finally { CloseHandle(handle); }
-        }
-
-        bool OpenDshWindow()
-        {
-            IntPtr found = IntPtr.Zero;
-            string why = "";
-            try
-            {
-                EnumWindows(delegate(IntPtr hwnd, IntPtr param)
-                {
-                    if (!IsWindowVisible(hwnd)) return true;
-                    var cls = new StringBuilder(256);
-                    if (GetClassName(hwnd, cls, 256) <= 0) return true;
-                    string clsName = cls.ToString();
-                    if (clsName.IndexOf("Chrome_WidgetWin_1", StringComparison.OrdinalIgnoreCase) < 0) return true;
-
-                    int pid;
-                    GetWindowThreadProcessId(hwnd, out pid);
-                    string image = ProcessImagePath(pid);
-                    why += " | " + clsName + "/" + pid + "/" + System.IO.Path.GetFileName(image);
-
-                    var title = new StringBuilder(256);
-                    GetWindowText(hwnd, title, 256);
-                    string text = title.ToString();
-
-                    bool byImage = image.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0
-                                   || image.IndexOf("dsh", StringComparison.OrdinalIgnoreCase) >= 0;
-                    bool byTitle = text.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0;
-                    if (!byImage && !byTitle) return true;
-
-                    found = hwnd;
-                    return false;
-                }, IntPtr.Zero);
-            }
-            catch (Exception ex) { MessengerLog("dsh enum failed: " + ex.Message); return false; }
-
-            if (found == IntPtr.Zero)
-            {
-                MessengerLog("dsh window not found. candidates:" + why);
-                return false;
-            }
-            try
-            {
-                if (IsIconic(found)) ShowWindow(found, 9);
-                SetForegroundWindow(found);
-                SwitchToThisWindow(found, true);
-                MessengerLog("dsh window activated");
-                return true;
-            }
-            catch (Exception ex) { MessengerLog("dsh activate failed: " + ex.Message); return false; }
-        }
         void ShowCapsuleNotice(string appId)
         {
             if (capsuleNotice == null) return;
-            if (appId != "dsh")
-            {
-                if (IsSuppressed(appId == "qq" ? "qq" : "wechat")) return;
-                if (IsMessengerForeground(appId == "qq" ? "qq" : "wechat")) return;
-            }
+            if (IsSuppressed(appId == "qq" ? "qq" : "wechat")) return;
+            if (IsMessengerForeground(appId == "qq" ? "qq" : "wechat")) return;
             if (IsMessengerForeground(appId == "qq" ? "qq" : "wechat")) return;
             if (expanded)
             {
@@ -400,18 +316,18 @@ namespace IslandShot
                 ShowPanelNoticeChip(appId);
                 return;
             }
-            capsuleNoticeApp = appId == "qq" ? "qq" : (appId == "dsh" ? "dsh" : "wechat");
+            capsuleNoticeApp = appId == "qq" ? "qq" : "wechat";
             bool isQq = capsuleNoticeApp == "qq";
             bool isDsh = capsuleNoticeApp == "dsh";
 
             capsuleNoticeDot.Background = new SolidColorBrush(isDsh
                 ? Color.FromRgb(124, 108, 242)
                 : isQq ? Color.FromRgb(18, 183, 245) : Color.FromRgb(7, 193, 96));
-            capsuleNoticeText.Text = isDsh ? "DSH 任务完成" : (isQq ? "QQ" : "微信") + " 有新消息";
+            capsuleNoticeText.Text = (isQq ? "QQ" : "微信") + " 有新消息";
 
             capsuleNoticeActive = true;
-            if (!isDsh) pendingNoticeApp = capsuleNoticeApp;   // DSH 不参与未读胶囊
-            if (!isDsh) { if (capsuleNoticeApp == "qq") unreadQq = true; else unreadWechat = true; }
+            pendingNoticeApp = capsuleNoticeApp;
+            if (capsuleNoticeApp == "qq") unreadQq = true; else unreadWechat = true;
             capsuleNotice.Visibility = Visibility.Visible;
             capsuleNotice.IsHitTestVisible = true;
             Motion.Fade(capsuleNotice, 1, 140, Motion.Enter, 0, null);

@@ -406,12 +406,6 @@ namespace IslandShot
         {
             if (expanded == value) return;
             expanded = value;
-            if (!value) {
-                var trace = new System.Diagnostics.StackTrace(1, false);
-                string who = "";
-                for (int k = 0; k < Math.Min(3, trace.FrameCount); k++) who += " < " + trace.GetFrame(k).GetMethod().Name;
-                MessengerLog("collapse from" + who);
-            }
             FrameworkElement surface = aiVisible && aiPanel != null
                 ? (FrameworkElement)aiPanel
                 : (musicVisible && musicPanel != null ? (FrameworkElement)musicPanel : panel);

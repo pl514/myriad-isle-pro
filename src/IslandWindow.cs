@@ -142,14 +142,6 @@ namespace IslandShot
                 MessengerLog("notice click -> " + capsuleNoticeApp);
                 string app = capsuleNoticeApp;
                 e.Handled = true;
-                if (app == "dsh")
-                {
-                    // DSH 是 Electron 应用：直接把它的窗口切到前台
-                    MessengerLog("dsh click -> open window");
-                    if (!OpenDshWindow()) MessengerLog("dsh window not found");
-                    ClearUnreadNotice();
-                    return;
-                }
                 OpenMessengerApp(app);
                 SuppressApp(app, 4000);
                 ClearUnreadNotice();
