@@ -139,7 +139,7 @@ namespace IslandShot
                         try
                         {
                             if (target == IntPtr.Zero || !IsWindow(target)) return;
-                            ApplyRectTarget(target);
+                            PlaceWithoutResize(LoadRect());   // 只挪位置，别改尺寸
                             SetWindowPos(target, HwndTopmost, 0, 0, 0, 0, 0x0001 | 0x0002 | SwpShowWindow);
                             StripCaption(target);
                         }
@@ -332,12 +332,46 @@ namespace IslandShot
         }
 
         // 让外部窗口对准指定矩形（拖动时也用它）
+        // 画质优先：窗口太小时先放大到 1100x760（播放器按大窗口选高清流），
+        // 已经够大就只挪位置、绝不改尺寸，避免播放器因为尺寸抖动而换成低清流。
+        internal static void PlaceWithoutResize(Rect rect)
+        {
+            try
+            {
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) return;
+                RECT current;
+                bool small = GetWindowRect(hwnd, out current) && (current.Right - current.Left) <= 780;
+                if (small)
+                {
+                    // 放大后可能超出屏幕：把位置夹进工作区
+                    Rect work = SystemParameters.WorkArea;
+                    int w = 1100, h = 760;
+                    int x = (int)rect.X;
+                    int y = (int)rect.Y;
+                    x = Math.Max((int)work.Left + 10, Math.Min((int)(work.Right - w - 30), x));
+                    y = Math.Max((int)work.Top + 10, Math.Min((int)(work.Bottom - h - 60), y));
+                    SetWindowPos(hwnd, HwndTopmost, x, y, w, h, 0x0040);
+                }
+                else
+                {
+                    // 只挪位置时也要夹一下，别把大窗口推出屏幕外
+                    Rect work2 = SystemParameters.WorkArea;
+                    int cw = current.Right - current.Left;
+                    int chh = current.Bottom - current.Top;
+                    int mx = Math.Max((int)work2.Left + 10, Math.Min((int)(work2.Right - cw - 30), (int)rect.X));
+                    int my = Math.Max((int)work2.Top + 10, Math.Min((int)(work2.Bottom - chh - 60), (int)rect.Y));
+                    SetWindowPos(hwnd, HwndTopmost, mx, my, 0, 0, 0x0001 | 0x0040);   // NOSIZE | SHOWWINDOW
+                }
+            }
+            catch (Exception) { }
+        }
+
         internal static void SetRect(Rect rect)
         {
             try
             {
                 if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) return;
-                SetWindowPos(hwnd, HwndTopmost, (int)rect.X, (int)rect.Y, (int)rect.Width, (int)rect.Height, SwpShowWindow);
+                SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, 0x0001 | 0x0002 | SwpShowWindow);
             }
             catch (Exception) { }
         }
@@ -394,7 +428,7 @@ namespace IslandShot
                 if (hwnd == IntPtr.Zero) return;
                 System.Threading.Thread.Sleep(1200);   // 等客户端初始化完再改样式，太早它会重建窗口
                 SaveOriginalOnce();   // 压小之前先记下它原本的窗口大小
-                SetRect(rect);
+                PlaceWithoutResize(rect);   // 只挪位置，不改尺寸（保画质）
                 StripCaption();
                 ShowWindow(hwnd, SwHide);
             }
@@ -429,9 +463,9 @@ namespace IslandShot
             try
             {
                 if (hwnd == IntPtr.Zero) return;
-                SetRect(rect);
+                PlaceWithoutResize(rect);   // 只挪位置，不改尺寸（保画质）
                 StripCaption();
-                SetWindowPos(hwnd, HwndTopmost, (int)rect.X, (int)rect.Y, (int)rect.Width, (int)rect.Height, SwpShowWindow);
+                SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, 0x0001 | 0x0002 | SwpShowWindow);
                 ShowWindow(hwnd, SwShowNoActivate);
                 SetForegroundWindow(hwnd);
                 KeeperStart();   // 持续保持置顶（客户端会改回自己的 z-order）
@@ -447,7 +481,7 @@ namespace IslandShot
                         try
                         {
                             if (target == IntPtr.Zero || !IsWindow(target)) return;
-                            ApplyRectTarget(target);
+                            PlaceWithoutResize(LoadRect());   // 只挪位置，别改尺寸
                             StripCaption(target);
                             SetWindowPos(target, HwndTopmost, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
                         }
