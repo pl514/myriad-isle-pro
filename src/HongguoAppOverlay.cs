@@ -95,6 +95,7 @@ namespace IslandShot
             {
                 SaveRect();
                 if (hwnd != IntPtr.Zero && IsWindow(hwnd)) ShowWindow(hwnd, SwHide);
+                KeeperStop();
             }
             catch (Exception) { }
         }
@@ -216,6 +217,51 @@ namespace IslandShot
         }
 
         // 记住用户拖动后的位置（隐藏/退出时保存）
+        // 持续保持置顶：客户端会把自己的 z-order 改回去，所以每隔一会儿补一次
+        static System.Threading.Timer keeper;
+
+        [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
+        [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int value);
+
+        internal static void KeeperStart()
+        {
+            if (keeper != null) return;
+            keeper = new System.Threading.Timer(delegate
+            {
+                try
+                {
+                    // 客户端可能重建窗口：每次都从进程重新取主窗口句柄
+                    IntPtr target = hwnd;
+                    try
+                    {
+                        if (process != null && !process.HasExited)
+                        {
+                            process.Refresh();
+                            if (process.MainWindowHandle != IntPtr.Zero) { target = process.MainWindowHandle; hwnd = target; }
+                        }
+                    }
+                    catch (Exception) { }
+                    if (target == IntPtr.Zero || !IsWindow(target)) return;
+                    if (!IsWindowVisible(target) || IsIconic(target)) return;
+
+                    // 先把 WS_EX_TOPMOST 位补上
+                    int ex = GetWindowLong(target, -20);
+                    if ((ex & 0x00000008) == 0)
+                    {
+                        SetWindowLong(target, -20, ex | 0x00000008);
+                    }
+                    // 再重新声明一次置顶（不移动、不改大小、不抢焦点）
+                    SetWindowPos(target, HwndTopmost, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+                }
+                catch (Exception) { }
+            }, null, 800, 800);
+        }
+
+        internal static void KeeperStop()
+        {
+            try { if (keeper != null) { keeper.Dispose(); keeper = null; } } catch (Exception) { }
+        }
+
         internal static void SaveRect()
         {
             try
@@ -254,8 +300,6 @@ namespace IslandShot
         }
 
         // 去掉系统标题栏（保留它自己的播放进度条等页面内容）
-        [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
-        [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int value);
         const int GwlStyle = -16;
         const int WsCaption = 0x00C00000;
         const int WsThickFrame = 0x00040000;
@@ -340,12 +384,31 @@ namespace IslandShot
             try
             {
                 if (hwnd == IntPtr.Zero) return;
-                System.Threading.Thread.Sleep(1200);   // 等客户端初始化完再改样式，太早它会重建窗口
                 SetRect(rect);
                 StripCaption();
                 SetWindowPos(hwnd, HwndTopmost, (int)rect.X, (int)rect.Y, (int)rect.Width, (int)rect.Height, SwpShowWindow);
                 ShowWindow(hwnd, SwShowNoActivate);
                 SetForegroundWindow(hwnd);
+                KeeperStart();   // 持续保持置顶（客户端会改回自己的 z-order）
+
+                // 客户端起来后会恢复自己的位置/尺寸：前 2.2 秒内再压几次
+                IntPtr target = hwnd;
+                Task.Run(delegate
+                {
+                    int[] delays = { 700, 1400, 2200 };
+                    foreach (int delay in delays)
+                    {
+                        System.Threading.Thread.Sleep(delay);
+                        try
+                        {
+                            if (target == IntPtr.Zero || !IsWindow(target)) return;
+                            ApplyRectTarget(target);
+                            StripCaption(target);
+                            SetWindowPos(target, HwndTopmost, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+                        }
+                        catch (Exception) { }
+                    }
+                });
             }
             catch (Exception) { }
         }
