@@ -517,7 +517,8 @@ namespace IslandShot
             // 全集只在那只客户端里：优先把它当小窗用，没有客户端才退回网页窗口
             if (HongguoAppOverlay.Available)
             {
-                HongguoAppOverlay.Toggle();
+                if (HongguoAppOverlay.IsShown) HideHongguoOverlay();
+                else OpenHongguoOverlay();
                 return;
             }
             ShowHongguoWindow();

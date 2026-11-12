@@ -133,6 +133,7 @@ namespace IslandShot
                             if (target == IntPtr.Zero || !IsWindow(target)) return;
                             ApplyRectTarget(target);
                             SetWindowPos(target, HwndTopmost, 0, 0, 0, 0, 0x0001 | 0x0002 | SwpShowWindow);
+                            StripCaption(target);
                         }
                         catch (Exception) { }
                     }
@@ -228,6 +229,105 @@ namespace IslandShot
             }
             catch (Exception) { }
         }
+
+        internal static IntPtr Handle
+        {
+            get { return (hwnd != IntPtr.Zero && IsWindow(hwnd)) ? hwnd : IntPtr.Zero; }
+        }
+
+        // 目标矩形（保存过就用保存的，否则 16:9 靠右上）
+        internal static Rect PlannedRect()
+        {
+            return LoadRect();
+        }
+
+        internal static Rect CurrentRect()
+        {
+            try
+            {
+                RECT r;
+                if (hwnd != IntPtr.Zero && GetWindowRect(hwnd, out r))
+                    return new Rect(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
+            }
+            catch (Exception) { }
+            return PlannedRect();
+        }
+
+        // 去掉系统标题栏（保留它自己的播放进度条等页面内容）
+        [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
+        [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int value);
+        const int GwlStyle = -16;
+        const int WsCaption = 0x00C00000;
+        const int WsThickFrame = 0x00040000;
+        const uint SwpFrameChanged = 0x0020;
+
+        internal static void StripCaption(IntPtr target)
+        {
+            try
+            {
+                if (target == IntPtr.Zero || !IsWindow(target)) return;
+                int style = GetWindowLong(target, GwlStyle);
+                if ((style & WsCaption) == 0) return;
+                SetWindowLong(target, GwlStyle, style & ~WsCaption & ~WsThickFrame);
+                SetWindowPos(target, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | SwpFrameChanged);
+            }
+            catch (Exception) { }
+        }
+
+        internal static void StripCaption()
+        {
+            StripCaption(hwnd);
+        }
+
+        // 让外部窗口对准指定矩形（拖动时也用它）
+        internal static void SetRect(Rect rect)
+        {
+            try
+            {
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) return;
+                SetWindowPos(hwnd, HwndTopmost, (int)rect.X, (int)rect.Y, (int)rect.Width, (int)rect.Height, SwpShowWindow);
+            }
+            catch (Exception) { }
+        }
+
+        // 启动 + 定位 + 去标题栏，但不显示（配合形变动画）
+        internal static void Prepare(Rect rect)
+        {
+            try
+            {
+                if (process == null || process.HasExited) StartProcess();
+                if (process == null) return;
+                for (int i = 0; i < 100; i++)
+                {
+                    if (TryGetWindow(out hwnd)) break;
+                    System.Threading.Thread.Sleep(120);
+                    process.Refresh();
+                }
+                if (hwnd == IntPtr.Zero) return;
+                System.Threading.Thread.Sleep(1200);   // 等客户端初始化完再改样式，太早它会重建窗口
+                SetRect(rect);
+                StripCaption();
+                ShowWindow(hwnd, SwHide);
+            }
+            catch (Exception) { }
+        }
+
+        internal static void ShowAt(Rect rect)
+        {
+            try
+            {
+                if (hwnd == IntPtr.Zero) return;
+                System.Threading.Thread.Sleep(1200);   // 等客户端初始化完再改样式，太早它会重建窗口
+                SetRect(rect);
+                StripCaption();
+                SetWindowPos(hwnd, HwndTopmost, (int)rect.X, (int)rect.Y, (int)rect.Width, (int)rect.Height, SwpShowWindow);
+                ShowWindow(hwnd, SwShowNoActivate);
+                SetForegroundWindow(hwnd);
+            }
+            catch (Exception) { }
+        }
+
+        const int SwShowNoActivate = 4;
 
         internal static void Reset()
         {
