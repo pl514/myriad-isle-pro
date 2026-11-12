@@ -216,8 +216,8 @@ namespace IslandShot
             catch (Exception) { }
 
             Rect work = SystemParameters.WorkArea;
-            double w = 720;
-            double h = 480;
+            double w = Math.Min(1040, Math.Max(880, work.Width * 0.50));
+            double h = Math.Round(w * 9.0 / 16.0);
             double x = work.Right - w - 60;
             double y = work.Top + 80;
             return new Rect(x, y, w, h);
@@ -257,8 +257,6 @@ namespace IslandShot
                     {
                         SetWindowLong(target, -20, ex | 0x00000008);
                     }
-                    // 小窗模式下每轮都把位置/尺寸压回来（客户端会自己恢复宽度）
-                    if (overlayActive) ApplyRectTarget(target);
                     // 再重新声明一次置顶（不移动、不改大小、不抢焦点）
                     SetWindowPos(target, HwndTopmost, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
                 }

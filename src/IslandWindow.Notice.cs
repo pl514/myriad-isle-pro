@@ -75,7 +75,7 @@ namespace IslandShot
                     }), DispatcherPriority.Background);
                 });
                 audioWatcher.Start();
-                HongguoAppOverlay.StartDirectLaunchWatcher();   // 红果直接打开时还原成正常大小
+                // 红果不做直接打开还原：它会改窗口尺寸，和客户端全屏抢
 
             }
             catch (Exception ex)
