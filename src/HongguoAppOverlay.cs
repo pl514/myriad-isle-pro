@@ -312,6 +312,29 @@ namespace IslandShot
             catch (Exception) { }
         }
 
+        // 形变动画期间把客户端窗口按住不显示（它初始化完会自己 Show 出来）
+        internal static void HoldHidden(int milliseconds)
+        {
+            try
+            {
+                IntPtr target = hwnd;
+                Task.Run(delegate
+                {
+                    DateTime end = DateTime.UtcNow.AddMilliseconds(milliseconds);
+                    while (DateTime.UtcNow < end)
+                    {
+                        try
+                        {
+                            if (target != IntPtr.Zero && IsWindow(target)) ShowWindow(target, SwHide);
+                        }
+                        catch (Exception) { }
+                        System.Threading.Thread.Sleep(25);
+                    }
+                });
+            }
+            catch (Exception) { }
+        }
+
         internal static void ShowAt(Rect rect)
         {
             try

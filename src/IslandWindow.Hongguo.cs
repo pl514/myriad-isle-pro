@@ -8,7 +8,6 @@ namespace IslandShot
     internal sealed partial class IslandWindow
     {
         HongguoPlayerWindow hongguoWindow;
-        HongguoChromeWindow hongguoChrome;
 
         // 外部客户端小窗：启动（后台）→ 形变 → 显示 → 自绘顶栏
         void OpenHongguoOverlay()
@@ -25,6 +24,7 @@ namespace IslandShot
             {
                 HongguoAppOverlay.Prepare(to);
                 MessengerLog("hongguo prepared hwnd=" + HongguoAppOverlay.Handle);   // 启动/定位/去标题栏（会等窗口创建，放后台别卡 UI）
+                HongguoAppOverlay.HoldHidden(460);   // 形变期间按住它，别让它抢先出现在外壳上面
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
                     if (HongguoAppOverlay.Handle == IntPtr.Zero)
@@ -37,23 +37,38 @@ namespace IslandShot
                     shell = MorphShellWindow.Create(from, to, 380, delegate
                     {
                         HongguoAppOverlay.ShowAt(to);
-                        EnsureHongguoChrome(to);
                         if (shell != null) shell.Dismiss();
+                        StartHongguoWatch();
                     });
                 }), DispatcherPriority.Background);
             });
         }
 
-        void EnsureHongguoChrome(Rect target)
+        // 客户端自己点 × 退出时也要演"飞回胶囊"：这里定时看着它的窗口
+        DispatcherTimer hongguoWatch;
+
+        void StartHongguoWatch()
         {
-            MessengerLog("hongguo chrome at " + target);
-            if (hongguoChrome == null)
+            if (hongguoWatch == null)
             {
-                hongguoChrome = new HongguoChromeWindow(
-                    delegate { HideHongguoOverlay(); },
-                    delegate { CloseHongguoOverlayWithMorph(); });
+                hongguoWatch = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                hongguoWatch.Tick += delegate
+                {
+                    if (HongguoAppOverlay.Handle != IntPtr.Zero) return;
+                    hongguoWatch.Stop();
+                    Rect last = HongguoAppOverlay.CurrentRect();
+                    Rect home = ScreenRectOf(capsule);
+                    SetToolRunning(FindTool("hongguo"), false);
+                    if (home.IsEmpty) return;
+                    MorphShellWindow back = null;
+                    back = MorphShellWindow.Create(last, home, 340, delegate
+                    {
+                        if (back != null) back.Dismiss();
+                    });
+                };
             }
-            hongguoChrome.AttachTo(target);
+            hongguoWatch.Stop();
+            hongguoWatch.Start();
         }
 
         // 收起（不退出进程）：外部窗口 + 顶栏一起藏起来
@@ -61,7 +76,6 @@ namespace IslandShot
         {
             HongguoAppOverlay.SaveRect();
             HongguoAppOverlay.Hide();
-            if (hongguoChrome != null) { try { hongguoChrome.Hide(); } catch (Exception) { } }
             SetToolRunning(FindTool("hongguo"), false);
         }
 
@@ -72,7 +86,6 @@ namespace IslandShot
             Rect to = ScreenRectOf(capsule);
             HongguoAppOverlay.SaveRect();
             HongguoAppOverlay.Hide();
-            if (hongguoChrome != null) { try { hongguoChrome.Hide(); } catch (Exception) { } }
             SetToolRunning(FindTool("hongguo"), false);
 
             if (to.IsEmpty) return;
