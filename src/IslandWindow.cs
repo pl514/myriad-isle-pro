@@ -33,6 +33,7 @@ namespace IslandShot
         const int HotkeyStopRecord = 0x4A59;
         const int HotkeyDouyin = 0x4A5A;
         const int HotkeyScreenTranslate = 0x4A5B;
+        const int HotkeyHongguo = 0x4A5C;
         const uint ModAlt = 0x0001, ModControl = 0x0002, ModShift = 0x0004, ModNoRepeat = 0x4000;
         HotkeyBinding[] hotkeys;
         const uint VkSpace = 0x20, VkA = 0x41, Vk2 = 0x32, Vk3 = 0x33;
@@ -308,6 +309,7 @@ namespace IslandShot
                 else if (id == HotkeyStopRecord) StopRecording();
                 else if (id == HotkeyDouyin) ToggleDouyinWindow();
                 else if (id == HotkeyScreenTranslate) StartScreenTranslate();
+                else if (id == HotkeyHongguo) ToggleHongguoWindow();
                 handled = true;
             }
             else if (message == WM_CLIPBOARDUPDATE)
@@ -2039,6 +2041,7 @@ namespace IslandShot
             if (action == HotkeyAction.ImagesToggle) return HotkeyImages;
             if (action == HotkeyAction.DouyinToggle) return HotkeyDouyin;
             if (action == HotkeyAction.ScreenTranslate) return HotkeyScreenTranslate;
+            if (action == HotkeyAction.HongguoToggle) return HotkeyHongguo;
             return HotkeyRecord;
         }
 
@@ -2063,6 +2066,7 @@ namespace IslandShot
             UnregisterHotKey(handle, HotkeyRecord);
             UnregisterHotKey(handle, HotkeyDouyin);
             UnregisterHotKey(handle, HotkeyScreenTranslate);
+            UnregisterHotKey(handle, HotkeyHongguo);
         }
 
         string ApplyHotkeys(HotkeyBinding[] next)

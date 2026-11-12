@@ -144,6 +144,14 @@ namespace IslandShot
             });
             orbTools.Add(new CapsuleTool
             {
+                Id = "hongguo",
+                Name = "红果短剧",
+                ColorFrom = Color.FromRgb(255, 106, 61),
+                ColorTo = Color.FromRgb(255, 196, 84),
+                Launch = LaunchHongguo
+            });
+            orbTools.Add(new CapsuleTool
+            {
                 Id = "ai",
                 Name = "AI 问答",
                 ColorFrom = Color.FromRgb(124, 108, 242),
@@ -502,6 +510,11 @@ namespace IslandShot
         void LaunchDouyin()
         {
             ShowDouyinWindow();
+        }
+
+        void LaunchHongguo()
+        {
+            ShowHongguoWindow();
         }
 
         void LaunchAiChat()
