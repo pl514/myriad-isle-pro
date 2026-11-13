@@ -144,14 +144,6 @@ namespace IslandShot
             });
             orbTools.Add(new CapsuleTool
             {
-                Id = "hongguo",
-                Name = "红果短剧",
-                ColorFrom = Color.FromRgb(255, 106, 61),
-                ColorTo = Color.FromRgb(255, 196, 84),
-                Launch = LaunchHongguo
-            });
-            orbTools.Add(new CapsuleTool
-            {
                 Id = "ai",
                 Name = "AI 问答",
                 ColorFrom = Color.FromRgb(124, 108, 242),
@@ -326,31 +318,6 @@ namespace IslandShot
                 Canvas.SetLeft(eyeRight, 8.2);
                 Canvas.SetTop(eyeRight, 4.0);
                 canvas.Children.Add(eyeRight);
-                return canvas;
-            }
-
-            if (id == "hongguo")
-            {
-                // 红果：圆角屏幕 + 播放三角（比默认的音符更贴合"看剧"）
-                var frame = new System.Windows.Shapes.Rectangle
-                {
-                    Width = 12.4,
-                    Height = 9.8,
-                    RadiusX = 2.6,
-                    RadiusY = 2.6,
-                    Stroke = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255)),
-                    StrokeThickness = 1.5
-                };
-                Canvas.SetLeft(frame, 1.8);
-                Canvas.SetTop(frame, 3.1);
-                canvas.Children.Add(frame);
-
-                var play = new Path
-                {
-                    Fill = new SolidColorBrush(Color.FromArgb(250, 255, 255, 255)),
-                    Data = Geometry.Parse("M6.5,5.4 L6.5,10.6 L10.9,8 Z")
-                };
-                canvas.Children.Add(play);
                 return canvas;
             }
 
@@ -537,17 +504,6 @@ namespace IslandShot
             ShowDouyinWindow();
         }
 
-        void LaunchHongguo()
-        {
-            // 全集只在那只客户端里：优先把它当小窗用，没有客户端才退回网页窗口
-            if (HongguoAppOverlay.Available)
-            {
-                if (HongguoAppOverlay.IsShown) HideHongguoOverlay();
-                else OpenHongguoOverlay();
-                return;
-            }
-            ShowHongguoWindow();
-        }
 
         void LaunchAiChat()
         {
