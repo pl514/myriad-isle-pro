@@ -2,6 +2,7 @@
 build/*.exe
 build/data/
 dist/
+publish/
 .tmp/
 
 # ---- 个人数据（截图库、录屏、配置）----

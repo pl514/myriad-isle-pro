@@ -107,9 +107,9 @@ namespace IslandShot
             ShowInTaskbar = false;
             Topmost = true;
 #if OUTSIDE_CLICK_TEST
-            Title = "万象岛 Pro TEST";
+            Title = AppInfo.TitleWithVersion + " TEST";
 #else
-            Title = "万象岛 Pro";
+            Title = AppInfo.Title;
 #endif
             AllowDrop = true;
 
@@ -201,7 +201,7 @@ namespace IslandShot
 
             // 托盘图标先不挂，等窗口真正显示出来（Loaded）再挂：
             // 登录自启动时资源管理器可能还没准备好，太早调用 Shell_NotifyIcon 会失败。
-            tray = new Forms.NotifyIcon { Icon = LoadApplicationIcon(), Text = "万象岛 Pro", Visible = false };
+            tray = new Forms.NotifyIcon { Icon = LoadApplicationIcon(), Text = AppInfo.TitleWithVersion, Visible = false };
             tray.MouseUp += delegate(object sender, Forms.MouseEventArgs e)
             {
                 if (e.Button == Forms.MouseButtons.Right) ShowTrayMenu();
