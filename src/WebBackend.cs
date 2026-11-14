@@ -443,6 +443,7 @@ namespace IslandShot
             int stable = 0;
             int polls = 0;
             bool firstContent = false;
+            bool fallbackLogged = false;
             DateTime started = DateTime.UtcNow;
             while (!token.IsCancellationRequested)
             {
@@ -481,6 +482,11 @@ namespace IslandShot
                         if (!string.IsNullOrEmpty(lastText) && !string.Equals(lastText, previousBlock, StringComparison.Ordinal))
                         {
                             current = lastText;
+                            if (!fallbackLogged) { fallbackLogged = true; Log("fallback last-answer len=" + lastText.Length); }
+                        }
+                        else if (polls % 20 == 1)
+                        {
+                            Log("no-answer: primary=" + (await RunIntAsync(CountJs())) + " lastLen=" + (lastText == null ? -1 : lastText.Length) + " baseline=" + (previousBlock == null ? -1 : previousBlock.Length));
                         }
                     }
                 }
