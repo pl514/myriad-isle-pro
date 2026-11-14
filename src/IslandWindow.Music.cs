@@ -4529,18 +4529,19 @@ namespace IslandShot
             scale.ScaleX = 1;
             scale.ScaleY = 1;
             move.Y = 0;
-            panel.Opacity = 0;
-            Motion.Fade(panel, 1, 180, Motion.Enter, 60, delegate
+            // 不做淡入：分层窗口在「切回图片页」的淡入里偶尔会整块变黑。
+            panel.Opacity = 1;
+            panel.Visibility = Visibility.Visible;
+            panel.IsHitTestVisible = true;
+            if (musicPanel != null)
             {
-                // 从音乐面板回来时补一遍缩略图：休眠/切面时可能被卸掉，表现为整块黑
-                ReloadCardImages();
-                // 兜底：保证图片面板在最上面、不透明
-                panel.Opacity = 1;
-                panel.Visibility = Visibility.Visible;
-                if (musicPanel != null) musicPanel.Visibility = Visibility.Collapsed;
-                panel.InvalidateVisual();
-                ForceRepaint();
-            });
+                musicPanel.Visibility = Visibility.Collapsed;
+                musicPanel.Opacity = 1;
+                musicPanel.Effect = null;
+            }
+            ReloadCardImages();
+            Opacity = 1;
+            panel.InvalidateVisual();
         }
 
         // × / Esc：走正常的收起动画，下次点胶囊直接回到音乐面板

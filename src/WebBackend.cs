@@ -905,14 +905,25 @@ namespace IslandShot
         static bool LooksLikeStatus(string text)
         {
             if (string.IsNullOrEmpty(text)) return false;
-            if (text.Length > 14) return false;          // 这么长的多半是真内容
+            string trimmed = text.Trim();
+            // 状态提示都很短；超过 20 字多半是真正的回答
+            if (trimmed.Length > 20) return false;
             for (int i = 0; i < DbBusyHints.Length; i++)
             {
-                if (text.IndexOf(DbBusyHints[i], StringComparison.Ordinal) >= 0) return true;
+                if (trimmed.IndexOf(DbBusyHints[i], StringComparison.Ordinal) >= 0) return true;
             }
-            return text.IndexOf("正在", StringComparison.Ordinal) >= 0
-                || text.IndexOf("搜索中", StringComparison.Ordinal) >= 0
-                || text.IndexOf("思考中", StringComparison.Ordinal) >= 0;
+            // 豆包的"过程提示"长这样，不是答案：
+            //   已搜索对应知识库 / 搜索到 N 篇资料 / 已阅读 3 个网页 / 正在思考 / 深度思考中 …
+            string[] hints = new string[]
+            {
+                "正在", "搜索中", "思考中", "已搜索", "搜索对应", "搜索到", "知识库",
+                "已阅读", "参考资料", "正在生成", "已思考", "深度思考", "整理中", "分析中"
+            };
+            for (int i = 0; i < hints.Length; i++)
+            {
+                if (trimmed.IndexOf(hints[i], StringComparison.Ordinal) >= 0) return true;
+            }
+            return false;
         }
 
         // 豆包会在回答末尾挂"相关视频/相关推荐"和话题标签，从末尾切掉

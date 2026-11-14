@@ -1663,18 +1663,20 @@ namespace IslandShot
             scale.ScaleX = 1;
             scale.ScaleY = 1;
             move.Y = 0;
-            panel.Opacity = 0;
-            Motion.Fade(panel, 1, 180, Motion.Enter, 60, delegate
+            // 不做淡入：分层窗口在「切回图片页」的淡入里偶尔会整块变黑。
+            // 直接把图片面板摆好、补缩略图、强制重绘。
+            panel.Opacity = 1;
+            panel.Visibility = Visibility.Visible;
+            panel.IsHitTestVisible = true;
+            if (aiPanel != null)
             {
-                // 从 AI 面板回来时补一遍缩略图：休眠/切面时可能被卸掉，表现为整块黑
-                ReloadCardImages();
-                // 兜底：确保图片面板真的在最上面、不透明（以前偶尔会留下一层黑）
-                panel.Opacity = 1;
-                panel.Visibility = Visibility.Visible;
-                if (aiPanel != null) aiPanel.Visibility = Visibility.Collapsed;
-                panel.InvalidateVisual();
-                ForceRepaint();
-            });
+                aiPanel.Visibility = Visibility.Collapsed;
+                aiPanel.Opacity = 1;
+                aiPanel.Effect = null;
+            }
+            ReloadCardImages();
+            Opacity = 1;
+            panel.InvalidateVisual();
         }
 
         // WPF 的 DropShadowEffect 会缓存元素内容：面板隐藏后那块缓存仍可能被画出来，
