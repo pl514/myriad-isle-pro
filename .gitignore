@@ -1,6 +1,7 @@
 # ---- 构建产物 ----
 build/*.exe
 build/data/
+build/stage-web/
 dist/
 publish/
 .tmp/
