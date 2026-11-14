@@ -2472,6 +2472,12 @@ namespace IslandShot
             finally
             {
                 capturing = false;
+                // 区域截图回来：新图片必须落在「图片」页，不能还停在上次的音乐 / AI 页
+                if (aiVisible) BackToImagePanel();
+                if (musicVisible) BackToImagePanelFromMusic();
+                aiLastSurface = false;
+                musicLastSurface = false;
+                SetTab(false);
                 SetExpanded(preview || wasExpanded);
                 suppressDeactivate = false;
                 if (preview || wasExpanded)
@@ -2533,8 +2539,12 @@ namespace IslandShot
         void RestoreShot(bool preview)
         {
             Show();
-            aiLastSurface = false;   // 截图/预览回来时一定是图片面板
+            // 截图/预览回来时一定是图片面板：先把还开着的音乐 / AI 页面收掉
+            if (aiVisible) BackToImagePanel();
+            if (musicVisible) BackToImagePanelFromMusic();
+            aiLastSurface = false;
             musicLastSurface = false;
+            SetTab(false);
             SetExpanded(preview);
             suppressDeactivate = false;
             if (preview) Activate();
