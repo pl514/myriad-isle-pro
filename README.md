@@ -24,6 +24,8 @@
 
 不需要安装：下载 → 解压 → 双击 exe。所有数据都在你自己电脑上。
 
+> 这是 **Pro 版**（带抖音小窗 / 音乐 / AI 面板）。想要更轻的版本，看 [万象岛 标准版](https://github.com/pl514/myriad-isle)（单文件 486 KB，只有截图 / 编辑 / 翻译 / 提示 / 录屏）。
+
 ## 功能一览
 
 | 模块 | 能做什么 |
@@ -76,7 +78,7 @@
 
 ## 下载与安装
 
-**去 [Releases](https://github.com/pl514/capsule-image-pro/releases/latest) 下载最新 zip：**
+**去 [Releases](https://github.com/pl514/myriad-isle-pro/releases/latest) 下载最新 zip：**
 
 ```
 1. 下载  MyriadIslePro-3.20.zip（约 0.8 MB）
@@ -284,7 +286,7 @@ MyMemory 免费额度按天算。等一会儿，或在设置里换成自己的 A
 
 ## 更新日志
 
-见 [Releases](https://github.com/pl514/capsule-image-pro/releases)。
+见 [Releases](https://github.com/pl514/myriad-isle-pro/releases)。
 
 ## 致谢
 
@@ -294,7 +296,7 @@ MyMemory 免费额度按天算。等一会儿，或在设置里换成自己的 A
 
 ## 许可
 
-本仓库代码公开，用于学习与交流。**目前尚未指定开源许可证**；如需商用或二次分发，请先开 Issue 联系作者。
+本项目使用 [MIT](LICENSE) 许可。
 
 ---
 
