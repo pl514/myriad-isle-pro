@@ -1,5 +1,9 @@
 # 万象岛 Pro · Myriad Isle Pro
 
+[简体中文](README.md) | **[English](README.en.md)**
+
+> ⭐ 如果它帮到你，点个 Star 就是最大的支持。
+
 > 🌐 官网：**https://pl514.github.io/myriad-isle-web/** —— 功能详解、截图、下载都在这里。
 
 
