@@ -23,3 +23,6 @@ desktop.ini
 
 # ---- 功能截图（体积大，不进版本库）----
 docs/music/*.png
+
+# ---- 会话/凭据样本，禁止入库 ----
+docs/music/*.json

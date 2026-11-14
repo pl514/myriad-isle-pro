@@ -118,7 +118,7 @@ if ($DryRun) { Write-Host '     [DryRun] 跳过' } else {
 # ---------- 3. 上传 zip ----------
 if ($release) {
     $assets = Invoke-RestMethod -Uri "$($release.upload_url -replace '\{.*\}','')" -Headers $headers -Method Get
-    $name = Split-Path $zip -Leaf
+    $name = "MyriadIslePro-$Version.zip"   # 附件名用英文：中文名在 URL 编码里会被吃掉
     foreach ($a in $assets) {
         if ($a.name -eq $name) {
             Step "删除同名旧附件 $name"
