@@ -2210,7 +2210,8 @@ namespace IslandShot
                     delegate { OpenImageFolder(); },
                     delegate { ClearCards(); },
                     delegate { CapsuleEyesEnabled = !CapsuleEyesEnabled; },
-                    CapsuleEyesEnabled);
+                    CapsuleEyesEnabled,
+                    delegate { OpenPhonePair(); });
                 menu.Closed += delegate { if (parent != null) parent.ChildOpen = false; };
                 menu.ShowLeftOf(parent);
             }

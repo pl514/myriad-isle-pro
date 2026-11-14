@@ -75,6 +75,7 @@ namespace IslandShot
                     }), DispatcherPriority.Background);
                 });
                 audioWatcher.Start();
+                StartPhoneInbox();   // 手机传图：局域网接收器
 
             }
             catch (Exception ex)

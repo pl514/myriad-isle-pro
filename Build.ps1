@@ -65,6 +65,13 @@ Copy-Item (Join-Path $webview2 'Microsoft.Web.WebView2.Wpf.dll') $out -Force
 Copy-Item (Join-Path $webview2 'WebView2Loader.dll') $out -Force
 
 # 投射窗的本地网页（WebView2 虚拟主机指向这个目录）
+$qrSource = Join-Path $root 'vendor\qrcode'
+$qrOut = Join-Path $out 'qrcode'
+if (Test-Path $qrSource) {
+    if (-not (Test-Path $qrOut)) { New-Item -ItemType Directory -Force -Path $qrOut | Out-Null }
+    Copy-Item (Join-Path $qrSource '*') $qrOut -Force
+}
+
 $stageWeb = Join-Path $root 'stage-web'
 if (Test-Path $stageWeb) {
     $stageOut = Join-Path $out 'stage-web'

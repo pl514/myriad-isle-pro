@@ -11,7 +11,7 @@ namespace IslandShot
 {
     internal sealed class MoreMenuWindow : Window
     {
-        public MoreMenuWindow(Action settings, Action add, Action folder, Action clear, Action toggleEyes, bool eyesOn)
+        public MoreMenuWindow(Action settings, Action add, Action folder, Action clear, Action toggleEyes, bool eyesOn, Action phone)
         {
             Width = 280;
             SizeToContent = SizeToContent.Height;
@@ -34,6 +34,7 @@ namespace IslandShot
             });
             panel.Children.Add(Row("快捷键设置", "⌨", delegate { Close(); settings(); }));
             panel.Children.Add(Row("添加图片", "＋", delegate { Close(); add(); }));
+            panel.Children.Add(Row("手机传图（扫码）", "📱", delegate { Close(); phone(); }));
             panel.Children.Add(Row("打开收藏文件夹", "▤", delegate { Close(); folder(); }));
             panel.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Color.FromRgb(232, 237, 244)), Margin = new Thickness(8, 5, 8, 5) });
             panel.Children.Add(Row("全部取下（保留文件）", "↙", delegate { Close(); clear(); }));
