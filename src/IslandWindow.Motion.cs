@@ -589,6 +589,20 @@ namespace IslandShot
                 forceImageSurface = true;
                 try { SetExpanded(true); } finally { quietExpand = false; }
             }
+            else if (openPanel && expanded)
+            {
+                // 面板开着但停在音乐 / AI / 文字 / 翻译页：图片必须落在「图片」页上，
+                // 所以切回图片页，并且落地后自动收起，省得用户手动关。
+                bool switched = false;
+                if (aiVisible) { BackToImagePanel(); switched = true; }
+                if (musicVisible) { BackToImagePanelFromMusic(); switched = true; }
+                if (showingText || showingTranslate) { SetTab(false); switched = true; }
+                if (switched)
+                {
+                    peek = true;
+                    peekOwned = true;
+                }
+            }
 
             if (pendingImage != null)
             {

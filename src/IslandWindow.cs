@@ -2534,6 +2534,7 @@ namespace IslandShot
         {
             Show();
             aiLastSurface = false;   // 截图/预览回来时一定是图片面板
+            musicLastSurface = false;
             SetExpanded(preview);
             suppressDeactivate = false;
             if (preview) Activate();
