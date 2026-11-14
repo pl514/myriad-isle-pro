@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Capsule Stage - HANABI</title>
+<link rel="stylesheet" href="stage.css" />
+</head>
+<body>
+  <main id="stage">
+    <canvas id="canvas"></canvas>
+    <div id="vignette"></div>
+    <div id="grain"></div>
+    <div id="bgDim"></div>
+    <div id="subtitle"></div>
+    <div id="styleTag">[ STYLE ] <span id="styleTagName">花火 / HANABI</span></div>
+    <div id="brand">CAPSULE × WEBVIEW2</div>
+
+    <div id="hint">空格 暂停 · ← → 快进 · Esc 收回</div>
+
+    <section id="bar" aria-label="播放控制">
+      <button id="playBtn" class="round" title="播放 / 暂停">
+        <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5.5 19 12 8 18.5Z"/></svg>
+      </button>
+      <div id="meta">
+        <div id="title">等待播放</div>
+        <div id="progressRow">
+          <span id="curTime">0:00</span>
+          <div id="track" role="slider" aria-label="进度">
+            <div id="trackBg"></div>
+            <div id="fill"></div>
+            <div id="knob"></div>
+          </div>
+          <span id="durTime">0:00</span>
+        </div>
+      </div>
+      <div id="actions">
+        <button id="styleBtn" class="icon" title="歌词样式设置">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.7v3.1M12 18.2v3.1M2.7 12h3.1M18.2 12h3.1M5.4 5.4l2.2 2.2M16.4 16.4l2.2 2.2M18.6 5.4l-2.2 2.2M7.6 16.4l-2.2 2.2"/></svg>
+        </button>
+        <button id="closeBtn" class="icon" title="收回投射">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <div id="panelDimmer" class="hidden"></div>
+    <section id="panel" class="hidden" aria-label="歌词样式">
+      <header>
+        <div class="panel-title">歌词样式</div>
+        <div class="panel-sub" id="panelSub">HANABI · 花火</div>
+        <button id="panelClose" class="icon" title="关闭">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+      <div class="panel-body">
+        <div class="left">
+          <div id="preview">
+            <div class="preview-art" id="previewArt">
+              <span class="preview-kicker" id="previewKicker">HANABI / 花火</span>
+              <strong id="previewLine">夜空把这一句点亮</strong>
+              <span class="preview-note" id="previewNote">烟花 · 彩纸 · 镜头推进</span>
+            </div>
+          </div>
+          <div class="grid-label">样式 18 / 全部</div>
+          <div id="styleGrid"></div>
+          <div class="proto-note">已接入 18 个网页样式；切样式会实时换背景、字体、版式和动效。透明背景在「背景」页。</div>
+        </div>
+        <div class="right">
+          <div class="tabs" id="tabs">
+            <button class="tab active" data-tab="animation">歌词动画</button>
+            <button class="tab" data-tab="background">背景</button>
+            <button class="tab" data-tab="font">字体</button>
+            <button class="tab" data-tab="subtitle">字幕</button>
+            <button class="tab" data-tab="global">全局</button>
+            <button class="tab" data-tab="default">默认</button>
+          </div>
+          <div class="content">
+            <div class="tab-page active" data-page="animation">
+              <div class="info">打开下面的随拍/烟花开关后，这些效果会作用在正在投射的画面上。</div>
+              <h3>动效效果</h3>
+              <label class="switch-row"><span>随拍开花</span><input id="optBloom" type="checkbox" checked /><i></i></label>
+              <label class="switch-row"><span>随拍推镜</span><input id="optPush" type="checkbox" checked /><i></i></label>
+
+              <h3>烟花 / 光点</h3>
+              <div class="slider-row"><div><span>火花数量</span><output id="outSpark">1.00</output></div><input id="optSpark" type="range" min="0" max="2" step="0.01" value="1" /></div>
+              <div class="slider-row"><div><span>烟花辉光</span><output id="outSparkGlow">1.00</output></div><input id="optSparkGlow" type="range" min="0" max="2" step="0.01" value="1" /></div>
+              <div class="slider-row"><div><span>副歌辉光</span><output id="outChorus">1.30</output></div><input id="optChorus" type="range" min="0" max="2" step="0.01" value="1.3" /></div>
+              <div class="slider-row"><div><span>整体辉光</span><output id="outGlow">0.80</output></div><input id="optGlow" type="range" min="0" max="2" step="0.01" value="0.8" /></div>
+              <label class="switch-row"><span>升空尾迹</span><input id="optTrail" type="checkbox" checked /><i></i></label>
+
+              <h3>画面</h3>
+              <div class="slider-row"><div><span>镜头强度</span><output id="outCamera">1.00</output></div><input id="optCamera" type="range" min="0" max="2" step="0.01" value="1" /></div>
+              <div class="slider-row"><div><span>文字动效</span><output id="outMotion">1.00</output></div><input id="optMotion" type="range" min="0" max="2" step="0.01" value="1" /></div>
+            </div>
+
+            <div class="tab-page" data-page="background">
+              <h3>背景</h3>
+              <label class="switch-row"><span>透明背景（壁纸模拟）</span><input id="optTransparent" type="checkbox" /><i></i></label>
+              <div class="info small">WebView2 + WPF 不能把逐像素透明真正透到桌面，这里用当前桌面壁纸做底图，视觉上接近透明；真正的桌面叠加需要 Electron 版。开启后场景背景会隐藏，只保留文字/动效。</div>
+              <div class="slider-row"><div><span>背景压暗</span><output id="outDim">0.00</output></div><input id="optDim" type="range" min="0" max="0.85" step="0.01" value="0" /></div>
+              <div class="slider-row"><div><span>装饰密度</span><output id="outDecor">1.00</output></div><input id="optDecor" type="range" min="0" max="2" step="0.01" value="1" /></div>
+            </div>
+
+            <div class="tab-page" data-page="font">
+              <h3>字体</h3>
+              <div class="info" id="fontInfo">当前样式：花火 / 无衬线粗体</div>
+              <div class="slider-row"><div><span>字号缩放</span><output id="outFontScale">1.00</output></div><input id="optFontScale" type="range" min="0.7" max="1.4" step="0.01" value="1" /></div>
+            </div>
+
+            <div class="tab-page" data-page="subtitle">
+              <h3>字幕</h3>
+              <label class="switch-row"><span>显示当前句字幕</span><input id="optSubtitle" type="checkbox" /><i></i></label>
+              <div class="info small" id="subtitleInfo">字幕显示在底栏上方，使用当前句。</div>
+            </div>
+
+            <div class="tab-page" data-page="global">
+              <h3>全局</h3>
+              <label class="switch-row"><span>减少动画</span><input id="optReduce" type="checkbox" /><i></i></label>
+              <label class="switch-row"><span>换段过渡</span><input id="optTransitions" type="checkbox" checked /><i></i></label>
+              <label class="switch-row"><span>每首歌随机样式</span><input id="optRandom" type="checkbox" /><i></i></label>
+            </div>
+
+            <div class="tab-page" data-page="default">
+              <h3>默认</h3>
+              <div class="info">恢复默认样式与全部动效参数。当前样式面板会立即刷新。</div>
+              <button id="btnReset" class="reset-btn">恢复默认</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div id="toast"></div>
+  </main>
+  <script src="stage.js"></script>
+</body>
+</html>
