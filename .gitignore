@@ -27,3 +27,4 @@ docs/music/*.png
 
 # ---- 会话/凭据样本，禁止入库 ----
 docs/music/*.json
+build/qrcode/pair.html

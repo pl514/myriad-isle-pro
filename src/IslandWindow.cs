@@ -236,6 +236,20 @@ namespace IslandShot
                 LoadImages();
                 HandleClipboardUpdate();
                 AttachTrayIcon();
+                // 命令行直接打开配对二维码：MyriadIslePro.exe --pair
+                try
+                {
+                    string[] startArgs = Environment.GetCommandLineArgs();
+                    for (int a = 0; a < startArgs.Length; a++)
+                    {
+                        if (string.Equals(startArgs[a], "--pair", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Dispatcher.BeginInvoke(new Action(delegate { OpenPhonePair(); }), DispatcherPriority.Background);
+                            break;
+                        }
+                    }
+                }
+                catch (Exception) { }
                 if (RuntimeAccess.IsLow) ShowLowPrivilegeNotice();
                 // 顺手清掉旧版本留下的“最高权限”计划任务（普通权限下自启动就够了）。
                 var cleanup = new Thread(delegate() { RuntimeAccess.RemoveLegacyStartupTask(); });

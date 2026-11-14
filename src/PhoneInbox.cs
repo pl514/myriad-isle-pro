@@ -100,6 +100,7 @@ namespace IslandShot
                 {
                     if (card.OperationalStatus != OperationalStatus.Up) continue;
                     if (card.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                    if (ShouldSkipAdapter(card.Name) || ShouldSkipAdapter(card.Description)) continue;
                     foreach (UnicastIPAddressInformation info in card.GetIPProperties().UnicastAddresses)
                     {
                         if (info.Address.AddressFamily != AddressFamily.InterNetwork) continue;
@@ -125,7 +126,16 @@ namespace IslandShot
             return fallback;
         }
 
-        // 列出所有可用的局域网地址（有网关的网卡排在前面）
+
+        static bool ShouldSkipAdapter(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string lower = name.ToLowerInvariant();
+            string[] skip = new string[] { "vpn", "radmin", "vmware", "virtualbox", "hyper-v", "vethernet", "tailscale", "zerotier", "wireguard", "tap-", "openvpn", "loopback", "蓝牙", "bluetooth" };
+            for (int i = 0; i < skip.Length; i++) if (lower.Contains(skip[i])) return true;
+            return false;
+        }
+        // 列出所有可用的局域网地址（有网关的网卡排在前面，虚拟网卡直接跳过）
         internal static System.Collections.Generic.List<string[]> LocalIPv4Candidates()
         {
             var list = new System.Collections.Generic.List<string[]>();
@@ -135,6 +145,7 @@ namespace IslandShot
                 {
                     if (card.OperationalStatus != OperationalStatus.Up) continue;
                     if (card.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                    if (ShouldSkipAdapter(card.Name) || ShouldSkipAdapter(card.Description)) continue;
                     bool hasGateway = false;
                     foreach (GatewayIPAddressInformation gateway in card.GetIPProperties().GatewayAddresses)
                     {

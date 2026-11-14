@@ -8,7 +8,7 @@ using System.Windows.Media;
 
 namespace IslandShot
 {
-    // 手机传图 · 配对窗口：显示二维码，手机扫码后就能直接分享照片过来。
+    // 手机传图 · 配对窗口：显示二维码，可切换不同网卡的地址。
     internal sealed class PhonePairWindow : Window
     {
         readonly string ip;
@@ -23,7 +23,7 @@ namespace IslandShot
 
             Title = "手机传图 · 配对";
             Width = 470;
-            Height = 660;
+            Height = 690;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Background = new SolidColorBrush(Color.FromRgb(9, 11, 20));
             FontFamily = new FontFamily("Microsoft YaHei UI");
@@ -75,59 +75,85 @@ namespace IslandShot
 
         string BuildHtml()
         {
-            string uri = "wanxiang://pair?ip=" + ip + "&port=" + port + "&token=" + token;
-
-            var others = new StringBuilder();
+            var addrs = new StringBuilder();
             List<string[]> candidates = PhoneInbox.LocalIPv4Candidates();
+            bool hasCurrent = false;
+            int index = 0;
             foreach (string[] item in candidates)
             {
-                if (item[0] == ip) continue;
-                others.Append("<div class='cand'>" + item[1] + "：<b>" + item[0] + "</b><span class='note'>（扫码连不上就换这个）</span></div>");
+                string uri = "wanxiang://pair?ip=" + item[0] + "&port=" + port + "&token=" + token;
+                if (addrs.Length > 0) addrs.Append(",");
+                addrs.Append("{ip:\"" + item[0] + "\",name:\"" + item[1].Replace("\"", "") + "\",uri:\"" + uri + "\"}");
+                if (item[0] == ip) { hasCurrent = true; index = addrs.Length; }
             }
-            string otherBlock = others.Length == 0 ? "" : "<div class='cands'>" + others + "</div>";
+            if (!hasCurrent)
+            {
+                string uri = "wanxiang://pair?ip=" + ip + "&port=" + port + "&token=" + token;
+                if (addrs.Length > 0) addrs.Append(",");
+                addrs.Append("{ip:\"" + ip + "\",name:\"当前网卡\",uri:\"" + uri + "\"}");
+            }
 
             string html = @"<!DOCTYPE html>
 <html lang=""zh-CN""><head><meta charset=""utf-8"">
 <style>
   * { box-sizing: border-box; }
-  body { margin:0; padding:24px 22px; background:#090b14; color:#eef0f8;
+  body { margin:0; padding:22px 20px; background:#090b14; color:#eef0f8;
          font-family:'Microsoft YaHei UI','Segoe UI',sans-serif; text-align:center; }
   h1 { font-size:19px; margin:0 0 6px; font-weight:600; }
-  p.sub { margin:0 0 16px; font-size:12.5px; color:#9aa2b8; line-height:1.6; }
-  .qr { width:246px; height:246px; margin:0 auto 14px; background:#fff; padding:12px;
+  p.sub { margin:0 0 14px; font-size:12.5px; color:#9aa2b8; line-height:1.6; }
+  .qr { width:238px; height:238px; margin:0 auto 12px; background:#fff; padding:11px;
         border-radius:16px; display:flex; align-items:center; justify-content:center;
         box-shadow:0 14px 40px rgba(0,0,0,.5); }
-  .addr { font-family:Consolas,monospace; font-size:13px; color:#7fe0ff; margin:0 0 2px; }
-  .steps { margin:16px auto 0; max-width:330px; text-align:left; font-size:12.5px; color:#b9bed3; line-height:2; }
-  .steps b { color:#eef0f8; }
-  .tip { margin-top:12px; font-size:11.5px; color:#6c7390; line-height:1.7; }
-  .cands { margin-top:10px; font-size:11.5px; color:#8a92a8; line-height:1.9; }
-  .cand b { color:#c8cede; font-family:Consolas,monospace; }
-  .cand .note { color:#5e6678; }
+  .addr { font-family:Consolas,monospace; font-size:13px; color:#7fe0ff; margin:0 0 10px; }
+  .alts { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin:0 auto 6px; max-width:330px; }
+  .alts button { font-family:inherit; font-size:11px; color:#c8cede; background:#151827;
+                 border:1px solid #2a2f42; border-radius:8px; padding:5px 9px; cursor:pointer; }
+  .alts button.on { border-color:#5ad7ff; color:#7fe0ff; }
+  .steps { margin:12px auto 0; max-width:330px; text-align:left; font-size:12.5px; color:#b9bed3; line-height:2; }
+  .tip { margin-top:10px; font-size:11.5px; color:#6c7390; line-height:1.7; }
 </style></head>
 <body>
   <h1>手机扫这个码</h1>
   <p class=""sub"">扫一次就记住，以后在相册里直接分享给「万象岛」</p>
   <div class=""qr""><div id=""q""></div></div>
-  <p class=""addr"">" + ip + ":" + port + @"</p>
+  <p class=""addr"" id=""addr"">" + ip + ":" + port + @"</p>
+  <div class=""alts"" id=""alts""></div>
   <div class=""steps"">
     <div>① 手机装好「万象岛」App</div>
     <div>② 打开 App → 点「扫描电脑上的二维码」</div>
     <div>③ 之后相册选图 → 分享 → 万象岛</div>
   </div>
-  " + otherBlock + @"
-  <p class=""tip"">手机和电脑要连同一个 Wi-Fi；<br>照片不会上传到任何服务器，只走局域网。</p>
+  <p class=""tip"">手机和电脑要连同一个网络（同一 Wi-Fi 或电脑热点）。<br>扫了连不上？点上面另一个地址换一张码。</p>
   <script src=""qrcode.min.js""></script>
   <script>
-    new QRCode(document.getElementById('q'), {
-      text: " + "\"" + uri + "\"" + @",
-      width: 222, height: 222,
-      colorDark: '#0b0d16', colorLight: '#ffffff',
-      correctLevel: QRCode.CorrectLevel.M
-    });
+    var ADDRS = [" + addrs.ToString() + @"];
+    function show(i) {
+      var box = document.getElementById('q');
+      box.innerHTML = '';
+      new QRCode(box, {
+        text: ADDRS[i].uri, width: 214, height: 214,
+        colorDark: '#0b0d16', colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+      document.getElementById('addr').textContent = ADDRS[i].ip + ':PORTNUM';
+      var btns = document.querySelectorAll('#alts button');
+      for (var k = 0; k < btns.length; k++) btns[k].className = (k === i ? 'on' : '');
+    }
+    (function () {
+      var host = document.getElementById('alts');
+      for (var i = 0; i < ADDRS.length; i++) {
+        (function (idx) {
+          var b = document.createElement('button');
+          b.textContent = ADDRS[idx].name + ' · ' + ADDRS[idx].ip;
+          b.onclick = function () { show(idx); };
+          host.appendChild(b);
+        })(i);
+      }
+      show(0);
+    })();
   </script>
 </body></html>";
-            return html;
+            return html.Replace("PORTNUM", port.ToString());
         }
     }
 }
