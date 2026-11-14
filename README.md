@@ -61,8 +61,11 @@
 
 ### 桌面歌词
 
+按一下，整块屏幕就变成歌词画布：背景淡化、歌词逐字高亮、底部留一条毛玻璃播放条
+（`空格` 暂停 · `← →` 快进 · `Esc` 收回）。
+
 <p align="center">
-  <img src="docs/screenshots/music-lyrics.png" width="720" alt="桌面歌词">
+  <img src="docs/screenshots/music-lyrics.png" width="860" alt="桌面歌词">
 </p>
 
 ### 胶囊里的迷你播放器
