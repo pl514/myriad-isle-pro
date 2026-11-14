@@ -4494,7 +4494,11 @@ namespace IslandShot
             scale.ScaleY = 1;
             move.Y = 0;
             panel.Opacity = 0;
-            Motion.Fade(panel, 1, 180, Motion.Enter, 60, null);
+            Motion.Fade(panel, 1, 180, Motion.Enter, 60, delegate
+            {
+                // 从音乐面板回来时补一遍缩略图：休眠/切面时可能被卸掉，表现为整块黑
+                ReloadCardImages();
+            });
         }
 
         // × / Esc：走正常的收起动画，下次点胶囊直接回到音乐面板

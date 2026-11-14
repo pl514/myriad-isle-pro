@@ -57,6 +57,7 @@ namespace IslandShot
                     string title = parts[1].Trim();
                     string role = parts[2].Trim();
                     string base64 = parts[3].Trim();
+                    string modelField = parts.Length >= 6 ? parts[5].Trim() : "";
 
                     string text;
                     try { text = Encoding.UTF8.GetString(Convert.FromBase64String(base64)); }
@@ -68,6 +69,7 @@ namespace IslandShot
                         session = new ChatSession();
                         session.Id = id;
                         session.Title = title.Length == 0 ? "新对话" : title;
+                        if (modelField.StartsWith("model:", StringComparison.Ordinal)) session.ModelId = modelField.Substring(6).Trim();
                         index[id] = session;
                         list.Add(session);
                     }
@@ -151,7 +153,7 @@ namespace IslandShot
             string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(payload.ToString()));
             return Safe(session.Id) + "|" + Safe(session.Title) + "|"
                 + (message != null && message.Role == ChatRole.User ? "user" : "ai") + "|"
-                + base64 + "|" + Stamp();
+                + base64 + "|" + Stamp() + "|" + (string.IsNullOrEmpty(session.ModelId) ? "" : "model:" + Safe(session.ModelId));
         }
 
         // 把正文前面的 [img] 行拆出来

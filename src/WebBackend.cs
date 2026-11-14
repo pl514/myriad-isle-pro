@@ -80,6 +80,12 @@ namespace IslandShot
             }
             return await window.ArchiveThreadAsync(threadUrl);
         }
+        // 网页版没有 system 提示可注入：这里收下但不使用（skill 只在 API 通道生效）
+        public string SystemPrompt { get; set; }
+
+        // 网页版走自己的 SetAttachments 上传，不用这个字段
+        public string[] ImagePaths { get; set; }
+
         public async Task SendAsync(string text, Action<string> onDelta, CancellationToken token)
         {
             if (onDelta == null || site == null) return;
@@ -495,23 +501,26 @@ namespace IslandShot
                     stable++;
                 }
 
-                // 生成状态每 3 个轮询查一次（多一次 IPC 的代价，换更快的收尾）
+                // 生成状态：只要内容稳定下来就查一次，别等 %3
                 bool generating = true;
-                if (stable >= 2 && polls % 3 == 0)
+                if (stable >= 2)
                 {
                     try { generating = (await RunStringAsync(GeneratingJs())) == "1"; }
                     catch (Exception) { generating = true; }
                 }
 
-                if (stable >= 2 && last.Length > 0 && !generating)
+                // 同时要求「页面说停」+「连续 6 个轮询没变化」（约 1.8 秒），
+                // 否则网页在思考/停顿一下就会被误判成生成完毕，答案被截断。
+                if (stable >= 6 && last.Length > 0 && !generating)
                 {
-                    mark("finished (idle, len=" + last.Length + ")");
-                    return;   // 页面已经生成完 → 立刻结束
+                    mark("finished (idle+stable, len=" + last.Length + ")");
+                    return;
                 }
-                if (stable >= 6 && last.Length > 0)
+                // 兜底：判断不了停止按钮时，至少 14 个轮询（约 4 秒）没变化才算完
+                if (stable >= 14 && last.Length > 0)
                 {
-                    mark("finished (stable, len=" + last.Length + ")");
-                    return;   // 兜底：页面没有停止按钮可判断时，约 1 秒没变化就结束
+                    mark("finished (stable fallback, len=" + last.Length + ")");
+                    return;
                 }
 
                 // 前 4 秒密集轮询（首字更快出来），之后放慢省 CPU

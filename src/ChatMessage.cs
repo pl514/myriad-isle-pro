@@ -35,6 +35,8 @@ namespace IslandShot
         public string Id;
         public string Title = "新对话";
         public string Provider = "deepseek";
+        // 这个会话锁定的模型（models.txt 里的 id）；空 = 老会话，不锁定
+        public string ModelId = "";
         public readonly List<ChatMessage> Messages = new List<ChatMessage>();
     }
 }

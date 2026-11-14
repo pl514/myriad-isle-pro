@@ -58,7 +58,9 @@ namespace IslandShot
         Grid aiShell;
         Border aiSessionMenu;
         ChatSession aiSessionMenuTarget;
+        TextBlock aiSessionSkillLabel;
         Button aiSendButton;
+        Button aiNewTaskButton;
         TextBox aiInput;
         TextBox aiAddNameBox;
         TextBox aiAddEndpointBox;
@@ -263,6 +265,7 @@ namespace IslandShot
             footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var inputHost = new Border
             {
@@ -354,6 +357,10 @@ namespace IslandShot
             aiSendButton = BuildAiSendButton();
             Grid.SetColumn(aiSendButton, 2);
             footer.Children.Add(aiSendButton);
+
+            aiNewTaskButton = BuildAiNewTaskButton();
+            Grid.SetColumn(aiNewTaskButton, 3);
+            footer.Children.Add(aiNewTaskButton);
 
             // 输入区上面的"已选图片"条（从图片面板「发送到 AI」带过来的）
             aiAttachmentStrip = new StackPanel
@@ -573,6 +580,60 @@ namespace IslandShot
             };
             chip.MouseLeftButtonUp += delegate { ToggleAiChip(); };
             return chip;
+        }
+
+        // 任务级上下文：同一任务内给 API 通道带上最近几轮（网页版有自己的会话，不带）
+        readonly Dictionary<string, List<string>> aiTaskTurns = new Dictionary<string, List<string>>();
+        const int AiTaskTurnLimit = 6;
+
+        static string Clip(string text, int limit)
+        {
+            if (text == null) return "";
+            return text.Length <= limit ? text : text.Substring(0, limit) + "…";
+        }
+
+        string AiTaskHistoryBlock(string sessionId)
+        {
+            if (string.IsNullOrEmpty(sessionId)) return "";
+            List<string> turns;
+            if (!aiTaskTurns.TryGetValue(sessionId, out turns) || turns == null || turns.Count == 0) return "";
+
+            string text = "以下是本对话此前的内容（同一任务内保留，用来理解上下文，不需要复述）：\r\n";
+            for (int i = 0; i < turns.Count; i++) text += turns[i] + "\r\n";
+            text += "--- 以上是上文，下面是本次的新要求 ---\r\n";
+            return text;
+        }
+
+        void RecordAiTaskTurn(string sessionId, string userText, string aiText)
+        {
+            if (string.IsNullOrEmpty(sessionId)) return;
+            List<string> turns;
+            if (!aiTaskTurns.TryGetValue(sessionId, out turns) || turns == null)
+            {
+                turns = new List<string>();
+                aiTaskTurns[sessionId] = turns;
+            }
+            turns.Add("用户：" + Clip(userText, 1500));
+            if (!string.IsNullOrEmpty(aiText)) turns.Add("助手：" + Clip(aiText, 2500));
+            while (turns.Count > AiTaskTurnLimit * 2) turns.RemoveAt(0);
+        }
+
+        // 「新任务」：只切断上文，不换对话、不动 skill 和教训
+        void NewAiTask()
+        {
+            if (aiCurrent != null) aiTaskTurns.Remove(aiCurrent.Id);
+            ShowToolMessage("新任务", "已切断上文。skill 和已经攒下的教训仍然保留。");
+        }
+
+        Button BuildAiNewTaskButton()
+        {
+            var button = ToolButton("新任务", 8);
+            button.Height = 30;
+            button.FontSize = 11;
+            button.Margin = new Thickness(6, 0, 0, 0);
+            button.ToolTip = "切断上文，开始一个新任务（skill 和已经攒的教训保留）";
+            button.Click += delegate { NewAiTask(); };
+            return button;
         }
 
         Button BuildAiSendButton()
@@ -1169,14 +1230,17 @@ namespace IslandShot
             OpenAiPanel();
             for (int i = 0; i < picked.Count; i++) AddAiAttachment(picked[i]);
 
-            // 图片只有网页版能发：当前是 API 模型就顺手切过去，省得发的时候被拦
-            if (!CurrentModelIsWeb())
+            // 图片现在有两条路：网页版上传，或者 API 模型（models.txt 里勾了「视觉」）。
+            // 两样都不满足时才顺手切到网页版，免得发的时候被拦。
+            AiModelConfig current = CurrentAiModel();
+            bool apiVision = current != null && current.Vision && !CurrentModelIsWeb();
+            if (!CurrentModelIsWeb() && !apiVision)
             {
                 AiModelConfig web = FirstWebModel();
                 if (web != null)
                 {
                     ApplyAiModel(web);
-                    ShowToolMessage("发送到 AI", "已切到「" + web.DisplayName() + "」（图片要网页版才能发）");
+                    ShowToolMessage("发送到 AI", "已切到「" + web.DisplayName() + "」（当前模型不支持图片）");
                 }
             }
             FocusAiInput();
@@ -1475,6 +1539,20 @@ namespace IslandShot
         void ApplyAiModel(AiModelConfig model)
         {
             if (model == null) return;
+            // 会话锁定了模型之后，中途不许换（换模型请新建会话）
+            if (aiCurrent != null && !string.IsNullOrEmpty(aiCurrent.ModelId) && aiCurrent.ModelId != model.Id)
+            {
+                ShowToolMessage("模型", "这个会话已锁定「" + aiModelLabel + "」，换模型请新建会话。");
+                RebuildAiModelOptions();
+                return;
+            }
+            ForceAiModel(model);
+        }
+
+        // 无视锁定，直接切（新建会话时用）
+        void ForceAiModel(AiModelConfig model)
+        {
+            if (model == null) return;
             aiModelId = model.Id;
             aiModelLabel = model.DisplayName();
             aiProvider = WebSiteOf(model);   // 网页版模型时同步球的状态；API 模型置空
@@ -1586,7 +1664,11 @@ namespace IslandShot
             scale.ScaleY = 1;
             move.Y = 0;
             panel.Opacity = 0;
-            Motion.Fade(panel, 1, 180, Motion.Enter, 60, null);
+            Motion.Fade(panel, 1, 180, Motion.Enter, 60, delegate
+            {
+                // 从 AI 面板回来时补一遍缩略图：休眠/切面时可能被卸掉，表现为整块黑
+                ReloadCardImages();
+            });
         }
 
         // WPF 的 DropShadowEffect 会缓存元素内容：面板隐藏后那块缓存仍可能被画出来，
@@ -1668,12 +1750,28 @@ namespace IslandShot
                 FocusAiInput();
                 return;
             }
+
+            // 新会话先选模型：选定后这个会话就锁定它，中途不能切
+            List<AiModelConfig> models = AiConfigStore.LoadModels();
+            if (models == null || models.Count == 0)
+            {
+                ShowToolMessage("新对话", "还没配置模型，先去「设置 → AI 模型」加一个。");
+                return;
+            }
+            var picker = new NewChatModelWindow(models, delegate(AiModelConfig model) { StartNewChatWithModel(model); });
+            picker.Show();
+        }
+
+        void StartNewChatWithModel(AiModelConfig model)
+        {
             var session = new ChatSession();
             session.Id = NewSessionId();
             session.Title = "新对话";
             session.Provider = aiProvider;
+            session.ModelId = model == null ? "" : model.Id;
             aiSessions.Add(session);
             aiCurrent = session;
+            if (model != null) ForceAiModel(model);
             RenderAiSessions();
             RenderChat();
             FocusAiInput();
@@ -1689,6 +1787,14 @@ namespace IslandShot
             if (session == null || session == aiCurrent) return;
             if (aiStreaming) StopAiStream();
             aiCurrent = session;
+            // 会话锁了模型就跟着它走（老会话没锁，保持当前模型）
+            if (!string.IsNullOrEmpty(session.ModelId))
+            {
+                for (int i = 0; i < aiModels.Count; i++)
+                {
+                    if (aiModels[i].Id == session.ModelId) { ForceAiModel(aiModels[i]); break; }
+                }
+            }
             UpdateAiOrbSelection();
             RenderAiSessions();
             // 换会话保留旧的滚动偏移没意义：直接把最新一条露出来
@@ -1768,6 +1874,36 @@ namespace IslandShot
         Border BuildAiSessionMenu()
         {
             var stack = new StackPanel();
+
+            // 装配 skill：把一段固定前置说明绑到这一个对话上（只对 API 通道生效）
+            var skillRow = new Border
+            {
+                Height = 30,
+                CornerRadius = new CornerRadius(8),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Tag = "ai-popup",
+                Child = new TextBlock
+                {
+                    Text = "装配 skill…",
+                    FontFamily = AiFont,
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromRgb(205, 214, 228)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(10, 0, 0, 0)
+                }
+            };
+            aiSessionSkillLabel = (TextBlock)skillRow.Child;
+            skillRow.MouseLeftButtonUp += delegate
+            {
+                ChatSession target = aiSessionMenuTarget;
+                CloseAiSessionMenu();
+                ToggleSessionSkill(target);
+            };
+            skillRow.MouseEnter += delegate { skillRow.Background = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)); };
+            skillRow.MouseLeave += delegate { skillRow.Background = Brushes.Transparent; };
+            stack.Children.Add(skillRow);
+
             var row = new Border
             {
                 Height = 30,
@@ -1817,6 +1953,11 @@ namespace IslandShot
             aiSessionMenuTarget = session;
             CloseAiChip();
 
+            if (aiSessionSkillLabel != null)
+            {
+                aiSessionSkillLabel.Text = SkillStore.Has(session.Id) ? "卸下 skill" : "装配 skill…";
+            }
+
             double maxX = Math.Max(0, aiShell.ActualWidth - 140);
             double maxY = Math.Max(0, aiShell.ActualHeight - 50);
             double x = Math.Max(0, Math.Min(at.X, maxX));
@@ -1829,6 +1970,36 @@ namespace IslandShot
         {
             if (aiSessionMenu != null) aiSessionMenu.Visibility = Visibility.Collapsed;
             aiSessionMenuTarget = null;
+        }
+
+        // 给某个对话绑定 / 解绑一段固定前置说明（skill）。只影响这一个对话。
+        void ToggleSessionSkill(ChatSession session)
+        {
+            if (session == null) return;
+
+            if (SkillStore.Has(session.Id))
+            {
+                SkillStore.Remove(session.Id);
+                ShowToolMessage("skill", "这个对话已卸下 skill，下次提问不再带前置说明。");
+                return;
+            }
+
+            using (var dialog = new Forms.OpenFileDialog())
+            {
+                dialog.Filter = "skill 文本|*.txt|所有文件|*.*";
+                dialog.Title = "给「" + session.Title + "」选择一个 skill 文本";
+                if (dialog.ShowDialog() != Forms.DialogResult.OK) return;
+                try
+                {
+                    SkillStore.Install(session.Id, dialog.FileName);
+                    ShowToolMessage("skill", "已装配：" + System.IO.Path.GetFileName(dialog.FileName)
+                        + "。只对这个对话生效，其它对话不受影响。");
+                }
+                catch (Exception ex)
+                {
+                    ShowToolMessage("skill", "装配失败：" + ex.Message);
+                }
+            }
         }
 
         // 删除一个会话：删掉当前会话时自动切到最近的一个；删空了就新建一个空会话
@@ -2018,7 +2189,70 @@ namespace IslandShot
                 copy.Click += delegate { SafeCopy(message.Text); };
                 row.Children.Add(copy);
             }
+            // 回答里像是一张 PLC 指令表，就给一个直接写成 GX Works2 能导入的 CSV 的入口
+            if (message.Role == ChatRole.Ai && PlcLadderCsv.LooksLikeLadder(message.Text))
+            {
+                var plc = ToolButton("存PLC", 8);
+                plc.Height = 22;
+                plc.FontSize = 11;
+                plc.Margin = new Thickness(6, 0, 0, 0);
+                plc.ToolTip = "把这条回答里的指令表存成 GX Works2 可直接导入的 CSV（UTF-16 LE + BOM）";
+                plc.Click += delegate { SavePlcCsv(message, plc); };
+                row.Children.Add(plc);
+            }
             return row;
+        }
+
+        /// <summary>
+        /// 把回答里的指令表写成 GX Works2「程序 → 从 CSV 文件读取」认得的那种 CSV。
+        /// 只负责文本 → 文件；指令本身对不对由 skill 和人工核对。
+        /// </summary>
+        void SavePlcCsv(ChatMessage message, Button button)
+        {
+            List<PlcLadderCsv.Row> rows = PlcLadderCsv.Parse(message.Text);
+            if (rows == null || rows.Count < 3)
+            {
+                button.Content = "没找到指令表";
+                return;
+            }
+            using (var dialog = new Forms.SaveFileDialog())
+            {
+                dialog.Filter = "GX Works2 程序 CSV|*.csv";
+                dialog.FileName = "program.csv";
+                dialog.Title = "存为 GX Works2 程序 CSV";
+                if (dialog.ShowDialog() != Forms.DialogResult.OK) return;
+                try
+                {
+                    PlcLadderCsv.Save(rows, dialog.FileName, System.IO.Path.GetFileNameWithoutExtension(dialog.FileName));
+                    button.Content = "已保存";
+                    button.ToolTip = dialog.FileName + "（共 " + rows.Count + " 行）";
+
+                    // 存完顺手自检：只报“编译不过 / 明显写错”这类客观问题
+                    List<string> warns = PlcLadderCsv.Validate(rows);
+                    if (warns.Count > 0)
+                    {
+                        // 这次的错记进“自己的教训”，下次发请求会带上（不覆盖主 skill）
+                        string sid = aiCurrent != null ? aiCurrent.Id : null;
+                        int learned = SkillStore.AppendLearned(sid, warns);
+                        ShowToolMessage("PLC 自检（已保存，但有 " + warns.Count + " 处要注意）",
+                            string.Join("\n", warns.ToArray()));
+
+                        // 快到上限时提醒人工挑，不自动删
+                        if (learned == SkillStore.LearnedWarnAt || learned == SkillStore.LearnedWarnAt + 4
+                            || learned >= SkillStore.LearnedLimit)
+                        {
+                            ShowToolMessage("教训已到 " + learned + " 条（上限 " + SkillStore.LearnedLimit + "）",
+                                "建议打开 build\\data\\skills\\" + (sid == null ? "" : sid) + ".learned.txt 看一下，"
+                                + "把已经不会再犯的删掉。到上限后不会自动删除，只是不再新增。");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    button.Content = "保存失败";
+                    button.ToolTip = ex.Message;
+                }
+            }
         }
 
         void RenderMessageContent(ChatMessage message)
@@ -2190,11 +2424,15 @@ namespace IslandShot
         {
             if (aiStreaming || !aiVisible || aiInput == null) return;
 
-            // 图片只有网页版能发（网页自己上传）；API 模型还没有视觉能力
+            // 图片：网页版走它自己的上传；API 通道把图片编进请求体，前提是模型勾了「视觉」。
             if (aiAttachments.Count > 0 && !CurrentModelIsWeb())
             {
-                ShowToolMessage("发送到 AI", "当前模型（API）不支持图片。点 D / 豆 小球切到网页版再发。");
-                return;
+                AiModelConfig currentImageModel = CurrentAiModel();
+                if (currentImageModel == null || !currentImageModel.Vision)
+                {
+                    ShowToolMessage("发送到 AI", "当前模型没勾「视觉」，发不了图片。换一个勾了视觉的模型，或点 D / 豆 小球用网页版。");
+                    return;
+                }
             }
 
             string text = aiInput.Text == null ? "" : aiInput.Text.Trim();
@@ -2264,9 +2502,35 @@ namespace IslandShot
                     aiAttachments.Clear();
                     RenderAiAttachments();
                 }
-                await backend.SendAsync(prompt, delegate(string delta) { AppendDelta(message, delta); }, token);
+                // 只把本对话绑定的 skill 当 system 发出去；没绑就是空字符串，行为与以前完全一致
+                // 再加上这个对话自己攒下来的教训（和主 skill 分开存，互不覆盖）
+                backend.SystemPrompt = SkillStore.Load(aiCurrent != null ? aiCurrent.Id : null)
+                    + SkillStore.LoadLearned(aiCurrent != null ? aiCurrent.Id : null);
+
+                // API 通道：把附件条里的图片交给后端编进请求体（网页通道走 SetAttachments）
+                if (!CurrentModelIsWeb() && aiAttachments.Count > 0)
+                {
+                    backend.ImagePaths = aiAttachments.ToArray();
+                    aiAttachments.Clear();
+                    RenderAiAttachments();
+                }
+
+                // 同一任务内的上文：只给 API 通道拼进去，网页版有它自己的会话
+                string sendPrompt = prompt;
+                if (!CurrentModelIsWeb())
+                {
+                    string history = AiTaskHistoryBlock(aiCurrent != null ? aiCurrent.Id : null);
+                    if (history.Length > 0) sendPrompt = history + "\r\n" + prompt;
+                }
+
+                await backend.SendAsync(sendPrompt, delegate(string delta) { AppendDelta(message, delta); }, token);
                 message.Streaming = false;
                 FinishAiMessage(message, null);
+
+                if (!CurrentModelIsWeb())
+                {
+                    RecordAiTaskTurn(aiCurrent != null ? aiCurrent.Id : null, prompt, message.Text);
+                }
             }
             catch (OperationCanceledException)
             {
