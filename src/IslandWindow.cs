@@ -1120,6 +1120,27 @@ namespace IslandShot
             else Motion.Delay(380, delegate { UpdateCapsuleMusicMode(); });
         }
 
+        // 分层窗口偶尔会在切面板后留下"没画面"的黑块：抖一下 Opacity 强制 DWM 重组
+        internal void ForceRepaint()
+        {
+            try
+            {
+                double current = Opacity;
+                if (current <= 0) current = 1;
+                Opacity = 0.996;
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    try
+                    {
+                        Opacity = current;
+                        InvalidateVisual();
+                    }
+                    catch (Exception) { }
+                }), System.Windows.Threading.DispatcherPriority.Render);
+            }
+            catch (Exception) { }
+        }
+
         void ToggleCapsule()
         {
             if (!capsuleClosed)

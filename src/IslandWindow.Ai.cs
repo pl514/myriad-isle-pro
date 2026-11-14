@@ -1673,6 +1673,7 @@ namespace IslandShot
                 panel.Visibility = Visibility.Visible;
                 if (aiPanel != null) aiPanel.Visibility = Visibility.Collapsed;
                 panel.InvalidateVisual();
+                ForceRepaint();
             });
         }
 

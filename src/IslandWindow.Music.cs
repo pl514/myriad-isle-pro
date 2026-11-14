@@ -4539,6 +4539,7 @@ namespace IslandShot
                 panel.Visibility = Visibility.Visible;
                 if (musicPanel != null) musicPanel.Visibility = Visibility.Collapsed;
                 panel.InvalidateVisual();
+                ForceRepaint();
             });
         }
 

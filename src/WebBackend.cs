@@ -418,7 +418,7 @@ namespace IslandShot
 
             int before = await RunIntAsync(CountJs());
             int expected = before + (site.Kind == "db" ? 2 : 1);
-            string previousBlock = site.Kind == "db" ? (await RunStringAsync(AnswerTextJs(0)) ?? "") : null;
+            string previousBlock = site.Kind == "db" ? (await RunStringAsync(AnswerTextJs(0)) ?? "") : (await RunStringAsync(LastAnswerTextJs()) ?? "");
             Log("site=" + site.Id + " before=" + before + " expected=" + expected + " prevBlock=" + (previousBlock == null ? -1 : previousBlock.Length));
 
             // 2) 写入并发送
@@ -473,6 +473,16 @@ namespace IslandShot
                 {
                     current = await RunStringAsync(AnswerTextJs(before));
                     if (current == null) current = "";
+                    // 兜底：DeepSeek 改版后按下标取不到时，用「最后一条回答」和发送前的基线比对。
+                    // 只要能读到新内容就继续，不至于干等 60 秒报错。
+                    if (current.Length == 0)
+                    {
+                        string lastText = await RunStringAsync(LastAnswerTextJs());
+                        if (!string.IsNullOrEmpty(lastText) && !string.Equals(lastText, previousBlock, StringComparison.Ordinal))
+                        {
+                            current = lastText;
+                        }
+                    }
                 }
                 polls++;
                 if (polls <= 80) Log("poll " + polls + " len=" + current.Length + " t=" + (int)elapsed + "s");
@@ -862,6 +872,17 @@ namespace IslandShot
             }
             return "(function(){var a=document.querySelectorAll('" + Escape(site.AnswerSelector) + "');" +
                    "var el=a[" + index + "];return el?el.innerText:'';})()";
+        }
+
+        // 最后一条回答的纯文本（多套选择器兜底，DeepSeek 改版也能读到）
+        string LastAnswerTextJs()
+        {
+            string primary = Escape(site.AnswerSelector);
+            string quote = "\"";
+            return "(function(){var sels=['" + primary + "','.ds-markdown','[class*=" + quote + "ds-markdown" + quote + "]','[class*=" + quote + "markdown" + quote + "]','.prose'];" +
+                   "for(var s=0;s<sels.length;s++){try{var a=document.querySelectorAll(sels[s]);" +
+                   "if(a&&a.length){var t=(a[a.length-1].innerText||'').trim();if(t.length>0)return t;}}catch(e){}}" +
+                   "return '';})()";
         }
 
         // 整段对话的纯文本（去掉动作条/推荐/回到底部按钮），给豆包做"快照 + 取新增尾巴"用
