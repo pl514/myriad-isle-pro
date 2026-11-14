@@ -458,9 +458,10 @@ namespace IslandShot
                     dbDumped = true;
                     try { Log("dump: " + await RunStringAsync(DbDumpJs())); } catch (Exception) { }
                 }
-                if (last.Length == 0 && elapsed > 20)
+                if (last.Length == 0 && elapsed > 60)
                 {
-                    throw new InvalidOperationException("网页版 20 秒没读到回答（豆包页面结构可能变了）。先用 API。");
+                    // 网页版可能在思考 / 排队：给到 60 秒；真读不到再报错
+                    throw new InvalidOperationException("网页版 60 秒没读到回答（页面结构可能变了，或还在排队思考）。可以重试，或先切 API 模型。");
                 }
 
                 string current;

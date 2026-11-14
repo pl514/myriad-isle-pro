@@ -115,6 +115,8 @@ namespace IslandShot
         DispatcherTimer capsuleSpectrumTimer;
         readonly List<Border> capsuleSpectrumBars = new List<Border>();
         readonly Random musicRandom = new Random();
+        // 随机播放的一个「轮次」：本轮已经放过的歌不再抽，放完一轮再清空重来
+        readonly HashSet<string> musicShufflePlayed = new HashSet<string>(StringComparer.Ordinal);
         bool capsuleMiniActive;
         const double CapsuleIdleWidth = 148;
         const double CapsuleMusicWidth = 238;
@@ -3076,6 +3078,12 @@ namespace IslandShot
             NextMusicSong(1, true);
         }
 
+        static string ShuffleKey(MusicSongInfo song)
+        {
+            if (song == null) return "";
+            return string.IsNullOrEmpty(song.Mid) ? song.Title : song.Mid;
+        }
+
         void NextMusicSong(int step)
         {
             NextMusicSong(step, false);
@@ -3085,19 +3093,45 @@ namespace IslandShot
         {
             if (musicSongs.Count == 0) return;
 
-            // 随机：随机挑一首能播的（尽量不重复当前这首）
+            // 随机：洗牌袋。一轮内每首只放一次，全部放完才开新一轮
             if (musicPlayMode == MusicPlayMode.Shuffle && step > 0)
             {
-                for (int tries = 0; tries < 40; tries++)
+                if (musicCurrentSong != null && musicCurrentSong.Playable)
                 {
-                    int pick = musicRandom.Next(musicSongs.Count);
-                    MusicSongInfo candidate = musicSongs[pick];
-                    if (!candidate.Playable) continue;
-                    if (candidate == musicCurrentSong && musicSongs.Count > 1) continue;
-                    PlayMusicSong(candidate, auto);
+                    musicShufflePlayed.Add(ShuffleKey(musicCurrentSong));
+                }
+
+                var pool = new List<MusicSongInfo>();
+                for (int i = 0; i < musicSongs.Count; i++)
+                {
+                    MusicSongInfo song = musicSongs[i];
+                    if (!song.Playable) continue;
+                    if (song == musicCurrentSong) continue;
+                    if (musicShufflePlayed.Contains(ShuffleKey(song))) continue;
+                    pool.Add(song);
+                }
+
+                if (pool.Count == 0)
+                {
+                    // 本轮放完了：开新一轮
+                    musicShufflePlayed.Clear();
+                    for (int i = 0; i < musicSongs.Count; i++)
+                    {
+                        MusicSongInfo song = musicSongs[i];
+                        if (!song.Playable) continue;
+                        if (song == musicCurrentSong) continue;
+                        pool.Add(song);
+                    }
+                }
+
+                if (pool.Count > 0)
+                {
+                    MusicSongInfo pick = pool[musicRandom.Next(pool.Count)];
+                    musicShufflePlayed.Add(ShuffleKey(pick));
+                    PlayMusicSong(pick, auto);
                     return;
                 }
-                // 随机没挑到（歌单里能播的太少）：落回顺序查找
+                // 歌单里能播的太少：落回顺序查找
             }
 
             int index = musicCurrentSong == null ? -1 : musicSongs.IndexOf(musicCurrentSong);
@@ -3365,6 +3399,7 @@ namespace IslandShot
             {
                 // 有缓存：立刻显示，不等网络
                 musicSongs = cached;
+            musicShufflePlayed.Clear();
                 SetMusicListStatus(info.Name + " · " + cached.Count + " 首");
                 RenderMusicSongs();
                 musicNowTitle.Text = info.Name;
@@ -3394,6 +3429,7 @@ namespace IslandShot
                 if (changed)
                 {
                     musicSongs = songs;
+                musicShufflePlayed.Clear();
                     RenderMusicSongs();
                 }
                 musicNowTitle.Text = info.Name;
@@ -4498,6 +4534,11 @@ namespace IslandShot
             {
                 // 从音乐面板回来时补一遍缩略图：休眠/切面时可能被卸掉，表现为整块黑
                 ReloadCardImages();
+                // 兜底：保证图片面板在最上面、不透明
+                panel.Opacity = 1;
+                panel.Visibility = Visibility.Visible;
+                if (musicPanel != null) musicPanel.Visibility = Visibility.Collapsed;
+                panel.InvalidateVisual();
             });
         }
 

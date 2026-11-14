@@ -1668,6 +1668,11 @@ namespace IslandShot
             {
                 // 从 AI 面板回来时补一遍缩略图：休眠/切面时可能被卸掉，表现为整块黑
                 ReloadCardImages();
+                // 兜底：确保图片面板真的在最上面、不透明（以前偶尔会留下一层黑）
+                panel.Opacity = 1;
+                panel.Visibility = Visibility.Visible;
+                if (aiPanel != null) aiPanel.Visibility = Visibility.Collapsed;
+                panel.InvalidateVisual();
             });
         }
 
