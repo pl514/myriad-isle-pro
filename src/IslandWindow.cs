@@ -2473,6 +2473,8 @@ namespace IslandShot
             {
                 capturing = false;
                 // 区域截图回来：新图片必须落在「图片」页，不能还停在上次的音乐 / AI 页
+                bool hadMusic = musicVisible || musicLastSurface;
+                bool hadAi = aiVisible || aiLastSurface;
                 if (aiVisible) BackToImagePanel();
                 if (musicVisible) BackToImagePanelFromMusic();
                 aiLastSurface = false;
@@ -2484,6 +2486,11 @@ namespace IslandShot
                 {
                     Activate();
                     Focus();
+                    // 看一眼新截图，然后自动收起；原来在看音乐的话，收起后记忆还回音乐
+                    peekOwned = true;
+                    peekRestoreMusic = hadMusic;
+                    peekRestoreAi = hadAi;
+                    HoldPeek();
                 }
             }
         }
@@ -2540,6 +2547,8 @@ namespace IslandShot
         {
             Show();
             // 截图/预览回来时一定是图片面板：先把还开着的音乐 / AI 页面收掉
+            bool hadMusic = musicVisible || musicLastSurface;
+            bool hadAi = aiVisible || aiLastSurface;
             if (aiVisible) BackToImagePanel();
             if (musicVisible) BackToImagePanelFromMusic();
             aiLastSurface = false;
@@ -2547,7 +2556,15 @@ namespace IslandShot
             SetTab(false);
             SetExpanded(preview);
             suppressDeactivate = false;
-            if (preview) Activate();
+            if (preview)
+            {
+                Activate();
+                // 看一眼新截图，然后自动收起；原来在看音乐的话，收起后记忆还回音乐
+                peekOwned = true;
+                peekRestoreMusic = hadMusic;
+                peekRestoreAi = hadAi;
+                HoldPeek();
+            }
         }
 
         void AddScreenshot(System.Drawing.Rectangle bounds)

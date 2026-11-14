@@ -2789,7 +2789,7 @@ namespace IslandShot
                 if (musicFailureSkipping) return;
                 musicFailureSkipping = true;
                 string failedMid = musicCurrentSong == null ? "" : musicCurrentSong.Mid;
-                ShowToolMessage("音乐", "播放失败，自动跳到下一首");
+                MusicDebug("auto skip: media failed");
                 // MediaFailed 里直接 Open 下一首容易和 MediaPlayer 的失败状态重入，
                 // 放到下一次 Dispatcher 再切歌，保证旧的失败回调先退出。
                 Dispatcher.BeginInvoke(new Action(delegate
@@ -2826,14 +2826,14 @@ namespace IslandShot
             if (!song.Playable)
             {
                 // 手动点播到没版权的歌也自动往后找，不要停在这里
-                ShowToolMessage("音乐", "这首没有版权，自动跳到下一首");
+                MusicDebug("auto skip: no copyright");
                 SkipAfterFailure();
                 return;
             }
             MusicPlatform platform = MusicPlatforms.Find(musicPlatformId);
             if (platform == null)
             {
-                ShowToolMessage("音乐", "找不到音乐平台，自动跳到下一首");
+                MusicDebug("auto skip: platform missing");
                 SkipAfterFailure();
                 return;
             }
@@ -2874,7 +2874,7 @@ namespace IslandShot
                 if (musicCurrentSong == null || !string.Equals(musicCurrentSong.Mid, mid, StringComparison.Ordinal)) return;
                 if (string.IsNullOrEmpty(url))
                 {
-                    ShowToolMessage("音乐", "取不到播放地址，自动跳到下一首");
+                    MusicDebug("auto skip: no play url");
                     SkipAfterFailure();
                     return;
                 }
@@ -2889,7 +2889,7 @@ namespace IslandShot
                 }
                 catch (Exception exception)
                 {
-                    ShowToolMessage("音乐", "播放失败，自动跳到下一首：" + exception.Message);
+                    MusicDebug("auto skip: play failed " + exception.Message);
                     SkipAfterFailure();
                 }
             }, delegate(string message)
@@ -2897,7 +2897,7 @@ namespace IslandShot
                 musicResolving = false;
                 MusicDebug("play url failed: " + message);
                 if (musicCurrentSong == null || !string.Equals(musicCurrentSong.Mid, mid, StringComparison.Ordinal)) return;
-                ShowToolMessage("音乐", "播放失败，自动跳到下一首：" + message);
+                MusicDebug("auto skip: play failed " + message);
                 SkipAfterFailure();
             });
 

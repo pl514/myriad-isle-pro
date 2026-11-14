@@ -510,6 +510,9 @@ namespace IslandShot
         bool suppressCardIn;
         bool quietExpand;
         bool peekOwned;
+        // 收图 peek 结束后要恢复的页面（截图前正在看音乐/AI 时，收完图自动关掉再回去）
+        bool peekRestoreMusic;
+        bool peekRestoreAi;
         System.Windows.Threading.DispatcherTimer peekTimer;
 
         sealed class IncomingImage
@@ -594,6 +597,8 @@ namespace IslandShot
                 // 面板开着但停在音乐 / AI / 文字 / 翻译页：图片必须落在「图片」页上，
                 // 所以切回图片页，并且落地后自动收起，省得用户手动关。
                 bool switched = false;
+                bool wasMusic = musicVisible;
+                bool wasAi = aiVisible;
                 if (aiVisible) { BackToImagePanel(); switched = true; }
                 if (musicVisible) { BackToImagePanelFromMusic(); switched = true; }
                 if (showingText || showingTranslate) { SetTab(false); switched = true; }
@@ -601,6 +606,8 @@ namespace IslandShot
                 {
                     peek = true;
                     peekOwned = true;
+                    peekRestoreMusic = wasMusic || musicLastSurface;
+                    peekRestoreAi = wasAi || aiLastSurface;
                 }
             }
 
@@ -691,6 +698,11 @@ namespace IslandShot
                     if (!peekOwned) return;
                     peekOwned = false;
                     if (expanded) SetExpanded(false);
+                    // 收完图：把「上次是音乐 / AI」的记忆还回去，下次展开还是原来那页
+                    if (peekRestoreMusic) musicLastSurface = true;
+                    if (peekRestoreAi) aiLastSurface = true;
+                    peekRestoreMusic = false;
+                    peekRestoreAi = false;
                 };
             }
             peekTimer.Stop();
