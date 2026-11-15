@@ -1606,10 +1606,12 @@ namespace IslandShot
 
             if (fromImagePanel)
             {
-                // 从图片面板里点球进来：不走胶囊形变，直接淡入
+                // 从图片面板里点球进来：不做胶囊形变，但要有「由矮长高」的过程
+                double fromHeight = panel != null ? panel.ActualHeight : 0;
                 aiPanel.Visibility = Visibility.Visible;
                 aiPanel.IsHitTestVisible = true;
                 aiPanel.Opacity = 0;
+                GrowSurfaceFrom(aiPanel, fromHeight, 300);
                 // 关键：上一次收起把内容层（shell）的 Opacity 淡到了 0，
                 // 这条路径必须自己把它淡回来，否则第二次打开只剩一块底色，看着像黑屏。
                 UIElement aiBody = aiPanel.Child as UIElement;

@@ -4492,9 +4492,12 @@ namespace IslandShot
 
             if (fromImagePanel)
             {
+                // 从图片面板里点球进来：保留「由矮长高」的过程
+                double fromHeight = panel != null ? panel.ActualHeight : 0;
                 musicPanel.Visibility = Visibility.Visible;
                 musicPanel.IsHitTestVisible = true;
                 musicPanel.Opacity = 0;
+                GrowSurfaceFrom(musicPanel, fromHeight, 300);
                 UIElement body = musicPanel.Child as UIElement;
                 if (body != null) Motion.AnimateDouble(body, UIElement.OpacityProperty, 0, 1, 220, Motion.Enter, 40, null);
                 Motion.PopIn(musicPanel, new Point(0.5, 0.15), 0.96, 10, 200, 0, Motion.Drop);

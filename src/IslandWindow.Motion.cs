@@ -402,6 +402,24 @@ namespace IslandShot
 
         // ================================================================ 面板
 
+        // 从图片面板切到更高/更矮的面板时，做一个「由矮变高」的高度动画：
+        // 只动面板自己的 ScaleY（顶部为轴），不改窗口尺寸，避免分层窗口黑屏。
+        internal void GrowSurfaceFrom(FrameworkElement surface, double fromHeight, int durationMs)
+        {
+            try
+            {
+                if (surface == null) return;
+                double target = surface.Height > 1 ? surface.Height : surface.ActualHeight;
+                if (target <= 1 || fromHeight <= 1) return;
+                double ratio = Math.Max(0.25, Math.Min(1, fromHeight / target));
+                ScaleTransform scale = Motion.ScaleOf(surface, new Point(0.5, 0));
+                HardResetScale(scale);
+                scale.ScaleY = ratio;
+                Motion.AnimateDouble(scale, ScaleTransform.ScaleYProperty, ratio, 1, durationMs, Motion.Enter, 0, null);
+            }
+            catch (Exception) { }
+        }
+
         void SetExpandedAnimated(bool value)
         {
             if (expanded == value) return;
