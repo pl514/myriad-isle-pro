@@ -4535,9 +4535,15 @@ namespace IslandShot
             ReloadCardImages();
             HardSetOpacity(this, 1);
             panel.InvalidateVisual();
-            // 400ms / 1s 各检查一次：哪段动画没跑完都能纠正回来
-            Motion.Delay(400, delegate { EnsureImageSurfaceHealthy(); });
-            Motion.Delay(1000, delegate { EnsureImageSurfaceHealthy(); });
+
+            // 最稳的做法：走一次「收起 → 展开」，和用户手动重开面板完全同一条路径，
+            // 这样形变/透明度状态一定会被彻底重置（之前黑屏就是这些状态残留）。
+            SetExpanded(false);
+            Motion.Delay(90, delegate
+            {
+                SetExpanded(true);
+                Motion.Delay(60, delegate { EnsureImageSurfaceHealthy(); });
+            });
         }
 
         // × / Esc：走正常的收起动画，下次点胶囊直接回到音乐面板
