@@ -4469,6 +4469,8 @@ namespace IslandShot
             if (musicVisible && expanded && musicPanel.Visibility == Visibility.Visible) return;
 
             bool fromImagePanel = expanded;
+            // 必须在把图片面板隐藏之前量它的矩形，否则量到的是 0，形变会直接被跳过
+            Rect imageRect = (fromImagePanel && panel != null) ? BoundsInWindow(panel) : Rect.Empty;
             musicVisible = true;
             musicLastSurface = true;
             aiLastSurface = false;
@@ -4493,7 +4495,6 @@ namespace IslandShot
             if (fromImagePanel)
             {
                 // 从图片面板切过来：宽、高、位置一起形变过去
-                Rect imageRect = panel != null ? BoundsInWindow(panel) : Rect.Empty;
                 musicPanel.Visibility = Visibility.Visible;
                 musicPanel.IsHitTestVisible = true;
                 HardSetOpacity(musicPanel, 1);
@@ -4533,11 +4534,14 @@ namespace IslandShot
             }
             if (panel == null) return;
 
-            panel.Visibility = Visibility.Visible;
-            panel.IsHitTestVisible = true;
-            HardSetOpacity(panel, 1);
             ReloadCardImages();
-            MorphBetween(panel, from, 320);
+            // 借形变这段时间刷新图片面板（隐藏一帧再显示，用户看不见），
+            // 等同"关掉再打开"，但面板不真的收起，所以形变能连续。
+            RefreshSurfaceQuick(panel, delegate
+            {
+                panel.IsHitTestVisible = true;
+                MorphBetween(panel, from, 320);
+            });
 
             // 形变跑完再自愈一遍，防残留黑底
             Motion.Delay(430, delegate { EnsureImageSurfaceHealthy(); });

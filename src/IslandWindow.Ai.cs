@@ -1654,11 +1654,14 @@ namespace IslandShot
             }
             if (panel == null) return;
 
-            panel.Visibility = Visibility.Visible;
-            panel.IsHitTestVisible = true;
-            HardSetOpacity(panel, 1);
             ReloadCardImages();
-            MorphBetween(panel, from, 320);
+            // 借形变这段时间刷新图片面板（隐藏一帧再显示，用户看不见），
+            // 效果等同"关掉再打开"，但不会真的收起面板，所以动画能连续。
+            RefreshSurfaceQuick(panel, delegate
+            {
+                panel.IsHitTestVisible = true;
+                MorphBetween(panel, from, 320);
+            });
 
             // 形变跑完再自愈一遍，防残留黑底
             Motion.Delay(430, delegate { EnsureImageSurfaceHealthy(); });

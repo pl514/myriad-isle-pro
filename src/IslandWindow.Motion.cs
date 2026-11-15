@@ -402,6 +402,37 @@ namespace IslandShot
 
         // ================================================================ 面板
 
+        // 不关闭面板的「刷新」：隐藏一帧再显示（用户看不见），让 WPF 重新走一遍渲染。
+        // 用户提的思路：返回时借形变这段时间刷新一下图片面板，而不是真的关掉再打开。
+        internal void RefreshSurfaceQuick(FrameworkElement surface, Action after)
+        {
+            if (surface == null)
+            {
+                if (after != null) after();
+                return;
+            }
+            try
+            {
+                surface.Visibility = Visibility.Collapsed;
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    try
+                    {
+                        surface.Visibility = Visibility.Visible;
+                        HardSetOpacity(surface, 1);
+                        UpdateLayout();
+                        surface.InvalidateVisual();
+                    }
+                    catch (Exception) { }
+                    if (after != null) after();
+                }), System.Windows.Threading.DispatcherPriority.Render);
+            }
+            catch (Exception)
+            {
+                if (after != null) after();
+            }
+        }
+
         // 元素在窗口坐标系里的矩形（用来做「面板 A → 面板 B」的 FLIP 形变）
         internal Rect BoundsInWindow(FrameworkElement element)
         {

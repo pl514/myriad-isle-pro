@@ -1113,24 +1113,31 @@ namespace IslandShot
             if (mouseHook != null) mouseHook.Enabled = value;
             if (!value)
             {
-                // 整体收起：把音乐/AI 面板彻底收掉并复位透明度。
-                // 只靠 lastSurface 记忆决定下次展开回到哪页，避免残留一层黑底。
-                musicVisible = false;
-                aiVisible = false;
-                if (musicPanel != null)
+                // 收起动画必须先按「当前显示的面板」来演（音乐/AI 要有自己的收起动画），
+                // 所以这里只先记下来，等动画跑一段再把面板真正隐藏。
+                SetExpandedAnimated(value);
+                Motion.Delay(320, delegate
                 {
-                    musicPanel.Visibility = Visibility.Collapsed;
-                    musicPanel.Opacity = 1;
-                    musicPanel.Effect = null;
-                }
-                if (aiPanel != null)
-                {
-                    aiPanel.Visibility = Visibility.Collapsed;
-                    aiPanel.Opacity = 1;
-                    aiPanel.Effect = null;
-                }
+                    musicVisible = false;
+                    aiVisible = false;
+                    if (musicPanel != null)
+                    {
+                        musicPanel.Visibility = Visibility.Collapsed;
+                        HardSetOpacity(musicPanel, 1);
+                        musicPanel.Effect = null;
+                    }
+                    if (aiPanel != null)
+                    {
+                        aiPanel.Visibility = Visibility.Collapsed;
+                        HardSetOpacity(aiPanel, 1);
+                        aiPanel.Effect = null;
+                    }
+                });
             }
-            SetExpandedAnimated(value);
+            else
+            {
+                SetExpandedAnimated(value);
+            }
             if (!value) ResetOrbHubInstant();
             if (value) RefreshPanelNoticeChip();   // 只按当前未读刷新，不重新标记
             if (!value) HidePanelNoticeChip();
