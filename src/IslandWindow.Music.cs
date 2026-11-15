@@ -126,6 +126,9 @@ namespace IslandShot
         StackPanel musicQueueList;
         TextBlock musicQueueTitle;
         MusicSongInfo musicCurrentSong;
+        MusicState musicRestoreState;            // 启动时读到的「上次听到哪」
+        TimeSpan? musicRestoreResume;            // 恢复后第一次播放要从这里开始
+        string musicRestoreResumeMid = "";
         readonly Dictionary<string, Border> musicPlaylistBgs = new Dictionary<string, Border>();
         readonly Dictionary<string, TextBlock> musicPlaylistCounts = new Dictionary<string, TextBlock>();
         List<MusicPlaylistInfo> musicPlaylists = new List<MusicPlaylistInfo>();
@@ -142,6 +145,7 @@ namespace IslandShot
         Border BuildMusicPanel()
         {
             musicPlatformId = MusicSession.Load();
+            musicRestoreState = MusicState.Load();   // 上次退出时听到哪首
 
             var shell = new Grid();
             var layout = new Grid();
@@ -2769,6 +2773,13 @@ namespace IslandShot
                 {
                     try { musicPlayer.Position = musicPendingSeek.Value; } catch (Exception) { }
                 }
+                // 上次退出时的进度：媒体打开后跳回去
+                if (musicRestoreResume.HasValue && string.Equals(musicRestoreResumeMid, currentMid, StringComparison.Ordinal))
+                {
+                    try { musicPlayer.Position = musicRestoreResume.Value; } catch (Exception) { }
+                    musicRestoreResume = null;
+                    musicRestoreResumeMid = "";
+                }
                 musicPendingSeek = null;
                 musicPendingSeekMid = "";
                 UpdateMusicProgress();
@@ -3159,6 +3170,7 @@ namespace IslandShot
             {
                 musicBrowsePlayButton.Child = MusicGlyph(playing ? "pause" : "play", Color.FromArgb(240, 255, 255, 255), 34 * 0.44);
             }
+            SaveMusicState();   // 播放 / 暂停也记一下
         }
 
         void UpdateMusicProgress()
@@ -3484,6 +3496,7 @@ namespace IslandShot
             if (musicNowTitle != null) musicNowTitle.Text = song.Title;
             if (musicNowArtist != null) musicNowArtist.Text = string.IsNullOrEmpty(song.Artists) ? "未知歌手" : song.Artists;
             if (musicStateTag != null) musicStateTag.Text = song.Playable ? "已选中 · 播放下一步接" : "无版权 · 播不了";
+            SaveMusicState();   // 切歌就记下来
         }
 
         // 拉歌词：拿到带时间轴的行，逐行渲染
@@ -4485,6 +4498,7 @@ namespace IslandShot
             }
             ApplyMusicPanelHeight();
             ApplyMusicLoginVisual();
+            ApplyMusicRestoreState();   // 上次退出时听到哪首，第一次打开就恢复
             if (!musicRowsIntroduced)
             {
                 musicRowsIntroduced = true;
@@ -4576,6 +4590,73 @@ namespace IslandShot
             musicPanel.Visibility = Visibility.Collapsed;
             musicPanel.Effect = null;
             musicPanel.IsHitTestVisible = true;
+        }
+
+        // 记住当前播放状态（切歌、暂停、退出时都会调）
+        void SaveMusicState()
+        {
+            try
+            {
+                var state = new MusicState();
+                state.PlatformId = musicPlatformId == null ? "" : musicPlatformId;
+                if (musicCurrentSong != null)
+                {
+                    state.Mid = musicCurrentSong.Mid == null ? "" : musicCurrentSong.Mid;
+                    state.Title = musicCurrentSong.Title == null ? "" : musicCurrentSong.Title;
+                    state.Artists = musicCurrentSong.Artists == null ? "" : musicCurrentSong.Artists;
+                    state.AlbumMid = musicCurrentSong.AlbumMid == null ? "" : musicCurrentSong.AlbumMid;
+                }
+                if (musicPlayer != null)
+                {
+                    try { state.PositionSeconds = musicPlayer.Position.TotalSeconds; } catch (Exception) { }
+                }
+                state.WasPlaying = musicPlaying;
+                state.PlayMode = musicPlayMode == MusicPlayMode.RepeatOne
+                    ? "repeat"
+                    : (musicPlayMode == MusicPlayMode.Sequential ? "sequential" : "shuffle");
+                var keys = new List<string>(musicShufflePlayed);
+                state.ShuffleKeys = string.Join("|", keys.ToArray());
+                state.Save();
+            }
+            catch (Exception) { }
+        }
+
+        // 启动后第一次打开音乐面板时，把上次听到的那首恢复出来（暂停状态、保留进度）
+        void ApplyMusicRestoreState()
+        {
+            MusicState state = musicRestoreState;
+            if (state == null) return;
+            musicRestoreState = null;
+            try
+            {
+                if (!string.IsNullOrEmpty(state.PlatformId)) musicPlatformId = state.PlatformId;
+                if (state.PlayMode == "repeat") musicPlayMode = MusicPlayMode.RepeatOne;
+                else if (state.PlayMode == "sequential") musicPlayMode = MusicPlayMode.Sequential;
+                else musicPlayMode = MusicPlayMode.Shuffle;
+
+                musicShufflePlayed.Clear();
+                if (!string.IsNullOrEmpty(state.ShuffleKeys))
+                {
+                    string[] keys = state.ShuffleKeys.Split(new char[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+                    for (int i = 0; i < keys.Length; i++) musicShufflePlayed.Add(keys[i]);
+                }
+
+                if (string.IsNullOrEmpty(state.Mid)) return;
+                var song = new MusicSongInfo();
+                song.Mid = state.Mid;
+                song.Title = state.Title.Length == 0 ? "上次播放" : state.Title;
+                song.Artists = state.Artists;
+                song.AlbumMid = state.AlbumMid;
+                SelectMusicSong(song);
+                if (state.PositionSeconds > 1)
+                {
+                    musicRestoreResume = TimeSpan.FromSeconds(state.PositionSeconds);
+                    musicRestoreResumeMid = state.Mid;
+                }
+                SetMusicPlaying(false);
+                MusicDebug("restore last song: " + song.Title + " @ " + state.PositionSeconds.ToString("0") + "s");
+            }
+            catch (Exception) { }
         }
 
         void ApplyMusicPanelHeight()

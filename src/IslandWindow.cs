@@ -259,6 +259,7 @@ namespace IslandShot
             };
             Closed += delegate
             {
+                SaveMusicState();   // 退出前记住听到哪首、听到哪
                 if (handle != IntPtr.Zero)
                 {
                     UnregisterHotkeys();
