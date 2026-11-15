@@ -1184,12 +1184,14 @@ namespace IslandShot
             try
             {
                 string state = "";
+                bool repaired = false;
                 if (musicPanel != null && musicPanel.Visibility == Visibility.Visible)
                 {
                     state += " musicVis op=" + musicPanel.Opacity.ToString("0.00");
                     musicPanel.Visibility = Visibility.Collapsed;
                     HardSetOpacity(musicPanel, 1);
                     musicPanel.Effect = null;
+                    repaired = true;
                 }
                 if (aiPanel != null && aiPanel.Visibility == Visibility.Visible)
                 {
@@ -1197,12 +1199,17 @@ namespace IslandShot
                     aiPanel.Visibility = Visibility.Collapsed;
                     HardSetOpacity(aiPanel, 1);
                     aiPanel.Effect = null;
+                    repaired = true;
                 }
                 if (panel != null)
                 {
                     state += " panelVis=" + panel.Visibility + " op=" + panel.Opacity.ToString("0.00");
-                    panel.Visibility = Visibility.Visible;
-                    HardSetOpacity(panel, 1);
+                    if (panel.Visibility != Visibility.Visible || panel.Opacity < 0.99)
+                    {
+                        panel.Visibility = Visibility.Visible;
+                        HardSetOpacity(panel, 1);
+                        repaired = true;
+                    }
                     panel.IsHitTestVisible = true;
                     panel.InvalidateVisual();
                 }
@@ -1214,8 +1221,9 @@ namespace IslandShot
                     ScaleTransform ps = Motion.ScaleOf(panel, PanelMorphOrigin);
                     if (ps != null) state += " pScale=" + ps.ScaleX.ToString("0.00") + "," + ps.ScaleY.ToString("0.00");
                 }
-                HardSetOpacity(this, 1);
-                ForceRepaint();
+                if (Opacity < 0.99) { HardSetOpacity(this, 1); repaired = true; }
+                // 只有真的修过东西才抖窗口（抖窗口本身会产生一帧闪烁）
+                if (repaired) ForceRepaint();
                 try
                 {
                     string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");

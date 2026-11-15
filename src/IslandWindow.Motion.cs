@@ -413,24 +413,18 @@ namespace IslandShot
             }
             try
             {
+                // 关键：整个过程在同一个 Dispatcher 操作里同步做完，
+                // 中间不会产生一帧"面板已隐藏"的画面，所以看不到闪烁。
                 surface.Visibility = Visibility.Collapsed;
-                Dispatcher.BeginInvoke(new Action(delegate
-                {
-                    try
-                    {
-                        surface.Visibility = Visibility.Visible;
-                        HardSetOpacity(surface, 1);
-                        UpdateLayout();
-                        surface.InvalidateVisual();
-                    }
-                    catch (Exception) { }
-                    if (after != null) after();
-                }), System.Windows.Threading.DispatcherPriority.Render);
+                surface.UpdateLayout();
+                surface.Visibility = Visibility.Visible;
+                HardSetOpacity(surface, 1);
+                surface.UpdateLayout();
+                surface.InvalidateVisual();
+                UpdateLayout();
             }
-            catch (Exception)
-            {
-                if (after != null) after();
-            }
+            catch (Exception) { }
+            if (after != null) after();
         }
 
         // 元素在窗口坐标系里的矩形（用来做「面板 A → 面板 B」的 FLIP 形变）
