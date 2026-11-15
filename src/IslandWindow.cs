@@ -1225,7 +1225,7 @@ namespace IslandShot
 
                 // 状态正确但画面仍是黑的（分层窗口表面没刷新）时，用同步刷新逼 WPF 重画。
                 // 同步执行不会产生"空帧"，所以看不见闪烁。
-                if (panel != null) RefreshSurfaceQuick(panel, null);
+                if (panel != null) { HardSetBodyOpacity(panel, 1); RefreshSurfaceQuick(panel, null); }
 
                 // 只有真的修过东西才抖窗口（抖窗口本身会产生一帧闪烁）
                 if (repaired) ForceRepaint();

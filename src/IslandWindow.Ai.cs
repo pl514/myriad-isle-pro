@@ -1655,6 +1655,7 @@ namespace IslandShot
             if (panel == null) return;
 
             ReloadCardImages();
+            HardSetBodyOpacity(panel, 1);   // 内容层补回 1，否则只剩深色底（黑屏）
             // 借形变这段时间刷新图片面板（隐藏一帧再显示，用户看不见），
             // 效果等同"关掉再打开"，但不会真的收起面板，所以动画能连续。
             RefreshSurfaceQuick(panel, delegate

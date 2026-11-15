@@ -427,6 +427,18 @@ namespace IslandShot
             if (after != null) after();
         }
 
+        // 面板壳（Border）里的内容层。展开/收起动画会把它淡到 0，
+        // 返回图片页时如果不把它补回 1，就会只剩一块深色底、内容全空——就是黑屏那一帧。
+        internal static void HardSetBodyOpacity(FrameworkElement surface, double value)
+        {
+            Border border = surface as Border;
+            if (border == null) return;
+            UIElement body = border.Child as UIElement;
+            if (body == null) return;
+            try { body.BeginAnimation(UIElement.OpacityProperty, null); } catch (Exception) { }
+            body.Opacity = value;
+        }
+
         // 元素在窗口坐标系里的矩形（用来做「面板 A → 面板 B」的 FLIP 形变）
         internal Rect BoundsInWindow(FrameworkElement element)
         {
