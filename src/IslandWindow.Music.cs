@@ -4505,7 +4505,7 @@ namespace IslandShot
             }
         }
 
-        // 返回图片面板：窗口保持展开态，只把内容换回图片面板
+        // 返回图片面板：先正常收起、再正常展开，动画完全复用「开面板」那条路径
         void BackToImagePanelFromMusic()
         {
             if (!musicVisible) return;
@@ -4516,33 +4516,27 @@ namespace IslandShot
 
             if (musicPanel != null)
             {
-                // 直接收掉，不做淡出：淡出动画被打断时音乐面板会留在上面（表现为一片黑底）
+                // 只把音乐面板收掉；图片面板交给收起→展开流程去摆，别提前改它的形变，
+                // 否则形变动画会从"已经是满尺寸"开始，看起来就是直接闪出来。
                 musicPanel.Visibility = Visibility.Collapsed;
                 HardSetOpacity(musicPanel, 1);
                 musicPanel.Effect = null;
                 musicPanel.IsHitTestVisible = true;
             }
+            if (aiPanel != null)
+            {
+                aiPanel.Visibility = Visibility.Collapsed;
+                HardSetOpacity(aiPanel, 1);
+                aiPanel.Effect = null;
+            }
 
-            if (panel == null) return;
-            panel.Visibility = Visibility.Visible;
-            panel.IsHitTestVisible = true;
-            Motion.Prepare(panel, PanelMorphOrigin);
-            ScaleTransform scale = Motion.ScaleOf(panel, PanelMorphOrigin);
-            TranslateTransform move = Motion.MoveOf(panel);
-            HardResetScale(scale);
-            HardResetMove(move);
-            HardSetOpacity(panel, 1);
-            ReloadCardImages();
-            HardSetOpacity(this, 1);
-            panel.InvalidateVisual();
-
-            // 最稳的做法：走一次「收起 → 展开」，和用户手动重开面板完全同一条路径，
-            // 这样形变/透明度状态一定会被彻底重置（之前黑屏就是这些状态残留）。
+            // 等收起动画放完（约 400ms）再展开，这样展开的形变才是从胶囊长出来的
             SetExpanded(false);
-            Motion.Delay(90, delegate
+            Motion.Delay(430, delegate
             {
                 SetExpanded(true);
-                Motion.Delay(60, delegate { EnsureImageSurfaceHealthy(); });
+                // 动画大约 400ms，等它跑完再做自愈，避免打断形变
+                Motion.Delay(520, delegate { EnsureImageSurfaceHealthy(); });
             });
         }
 

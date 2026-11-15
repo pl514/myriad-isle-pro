@@ -1655,32 +1655,17 @@ namespace IslandShot
             }
 
             if (panel == null) return;
-            panel.Visibility = Visibility.Visible;
-            panel.IsHitTestVisible = true;
-            // 上次收起把面板缩到了胶囊大小，这里要先把形变复位，否则会以极小的尺寸淡入
-            Motion.Prepare(panel, PanelMorphOrigin);
-            ScaleTransform scale = Motion.ScaleOf(panel, PanelMorphOrigin);
-            TranslateTransform move = Motion.MoveOf(panel);
-            HardResetScale(scale);
-            HardResetMove(move);
-            HardSetOpacity(panel, 1);
-            if (aiPanel != null)
-            {
-                aiPanel.Visibility = Visibility.Collapsed;
-                HardSetOpacity(aiPanel, 1);
-                aiPanel.Effect = null;
-            }
+            // 图片面板交给「收起→展开」流程去摆，这里不改它的形变，
+            // 否则展开动画会从满尺寸开始，看起来就是直接闪出来。
             ReloadCardImages();
-            HardSetOpacity(this, 1);
-            panel.InvalidateVisual();
 
-            // 最稳的做法：走一次「收起 → 展开」，和用户手动重开面板完全同一条路径，
-            // 这样形变/透明度状态一定会被彻底重置（之前黑屏就是这些状态残留）。
+            // 等收起动画放完（约 400ms）再展开，这样形变才是从胶囊长出来的
             SetExpanded(false);
-            Motion.Delay(90, delegate
+            Motion.Delay(430, delegate
             {
                 SetExpanded(true);
-                Motion.Delay(60, delegate { EnsureImageSurfaceHealthy(); });
+                // 动画大约 400ms，等它跑完再做自愈，避免打断形变
+                Motion.Delay(520, delegate { EnsureImageSurfaceHealthy(); });
             });
         }
 
