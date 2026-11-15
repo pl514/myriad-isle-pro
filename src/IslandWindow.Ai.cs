@@ -1598,6 +1598,7 @@ namespace IslandShot
             // 休眠时卸掉的气泡：真要打开 AI 面板了才按聊天数据重绘。
             RestoreAiChatVisuals();
             bool fromImagePanel = expanded;
+            Rect imageRect = (fromImagePanel && panel != null) ? BoundsInWindow(panel) : Rect.Empty;
             aiVisible = true;
             aiLastSurface = true;
             EnsureAiShadow();
@@ -1606,17 +1607,13 @@ namespace IslandShot
 
             if (fromImagePanel)
             {
-                // 从图片面板里点球进来：不做胶囊形变，但要有「由矮长高」的过程
-                double fromHeight = panel != null ? panel.ActualHeight : 0;
+                // 从图片面板切过来：宽、高、位置一起形变过去（图片面板的形状 → AI 面板的形状）
                 aiPanel.Visibility = Visibility.Visible;
                 aiPanel.IsHitTestVisible = true;
-                aiPanel.Opacity = 0;
-                GrowSurfaceFrom(aiPanel, fromHeight, 300);
-                // 关键：上一次收起把内容层（shell）的 Opacity 淡到了 0，
-                // 这条路径必须自己把它淡回来，否则第二次打开只剩一块底色，看着像黑屏。
+                HardSetOpacity(aiPanel, 1);
+                MorphBetween(aiPanel, imageRect, 320);
                 UIElement aiBody = aiPanel.Child as UIElement;
-                if (aiBody != null) Motion.AnimateDouble(aiBody, UIElement.OpacityProperty, 0, 1, 220, Motion.Enter, 40, null);
-                Motion.PopIn(aiPanel, new Point(0.5, 0.15), 0.96, 10, 200, 0, Motion.Drop);
+                if (aiBody != null) Motion.AnimateDouble(aiBody, UIElement.OpacityProperty, 0, 1, 240, Motion.Enter, 60, null);
             }
             else
             {
@@ -1637,8 +1634,7 @@ namespace IslandShot
             settleScroll.Start();
         }
 
-        // 返回图片面板：窗口保持展开态，只是把内容从 AI 面板换回图片面板。
-        // 注意不能走 SetExpanded(true)——expanded 已经是 true，会直接 return。
+        // 返回图片面板：AI 面板的形状直接形变成图片面板的形状（不经过胶囊）
         void BackToImagePanel()
         {
             if (!aiVisible) return;
@@ -1646,29 +1642,26 @@ namespace IslandShot
             CloseAiAddSheet();
             if (aiStreaming) StopAiStream();
 
+            Rect from = aiPanel != null ? BoundsInWindow(aiPanel) : Rect.Empty;
+
             aiVisible = false;
             aiLastSurface = false;
-            // 直接收掉 AI 面板，不做淡出：淡出被打断时会残留一层黑底盖在图片页上
             if (aiPanel != null)
             {
                 aiPanel.Visibility = Visibility.Collapsed;
                 HardSetOpacity(aiPanel, 1);
                 aiPanel.Effect = null;
             }
-
             if (panel == null) return;
-            // 图片面板交给「收起→展开」流程去摆，这里不改它的形变，
-            // 否则展开动画会从满尺寸开始，看起来就是直接闪出来。
-            ReloadCardImages();
 
-            // 等收起动画放完（约 400ms）再展开，这样形变才是从胶囊长出来的
-            SetExpanded(false);
-            Motion.Delay(430, delegate
-            {
-                SetExpanded(true);
-                // 动画大约 400ms，等它跑完再做自愈，避免打断形变
-                Motion.Delay(520, delegate { EnsureImageSurfaceHealthy(); });
-            });
+            panel.Visibility = Visibility.Visible;
+            panel.IsHitTestVisible = true;
+            HardSetOpacity(panel, 1);
+            ReloadCardImages();
+            MorphBetween(panel, from, 320);
+
+            // 形变跑完再自愈一遍，防残留黑底
+            Motion.Delay(430, delegate { EnsureImageSurfaceHealthy(); });
         }
 
         // WPF 的 DropShadowEffect 会缓存元素内容：面板隐藏后那块缓存仍可能被画出来，

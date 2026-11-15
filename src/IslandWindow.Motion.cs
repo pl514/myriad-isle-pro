@@ -402,6 +402,50 @@ namespace IslandShot
 
         // ================================================================ 面板
 
+        // 元素在窗口坐标系里的矩形（用来做「面板 A → 面板 B」的 FLIP 形变）
+        internal Rect BoundsInWindow(FrameworkElement element)
+        {
+            try
+            {
+                if (element == null) return Rect.Empty;
+                if (element.ActualWidth <= 0 || element.ActualHeight <= 0) UpdateLayout();
+                GeneralTransform t = element.TransformToAncestor(this);
+                return t.TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            }
+            catch (Exception) { return Rect.Empty; }
+        }
+
+        // 从一个矩形形变到元素自身尺寸：宽、高、位置一起变，才是「换面板」该有的样子
+        internal void MorphBetween(FrameworkElement target, Rect from, int durationMs)
+        {
+            if (target == null || from.IsEmpty || from.Width < 1 || from.Height < 1) return;
+            target.Visibility = Visibility.Visible;
+            target.IsHitTestVisible = true;
+            UpdateLayout();
+            Rect to = BoundsInWindow(target);
+            if (to.IsEmpty || to.Width < 1 || to.Height < 1) return;
+
+            ScaleTransform scale = Motion.ScaleOf(target, new Point(0, 0));
+            TranslateTransform move = Motion.MoveOf(target);
+            HardResetScale(scale);
+            HardResetMove(move);
+
+            double sx = from.Width / to.Width;
+            double sy = from.Height / to.Height;
+            double tx = from.X - to.X;
+            double ty = from.Y - to.Y;
+
+            scale.ScaleX = sx;
+            scale.ScaleY = sy;
+            move.X = tx;
+            move.Y = ty;
+
+            Motion.AnimateDouble(scale, ScaleTransform.ScaleXProperty, sx, 1, durationMs, Motion.Enter, 0, null);
+            Motion.AnimateDouble(scale, ScaleTransform.ScaleYProperty, sy, 1, durationMs, Motion.Enter, 0, null);
+            Motion.AnimateDouble(move, TranslateTransform.XProperty, tx, 0, durationMs, Motion.Enter, 0, null);
+            Motion.AnimateDouble(move, TranslateTransform.YProperty, ty, 0, durationMs, Motion.Enter, 0, null);
+        }
+
         // 从图片面板切到更高/更矮的面板时，做一个「由矮变高」的高度动画：
         // 只动面板自己的 ScaleY（顶部为轴），不改窗口尺寸，避免分层窗口黑屏。
         internal void GrowSurfaceFrom(FrameworkElement surface, double fromHeight, int durationMs)

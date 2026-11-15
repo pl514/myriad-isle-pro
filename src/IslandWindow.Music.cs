@@ -4492,15 +4492,14 @@ namespace IslandShot
 
             if (fromImagePanel)
             {
-                // 从图片面板里点球进来：保留「由矮长高」的过程
-                double fromHeight = panel != null ? panel.ActualHeight : 0;
+                // 从图片面板切过来：宽、高、位置一起形变过去
+                Rect imageRect = panel != null ? BoundsInWindow(panel) : Rect.Empty;
                 musicPanel.Visibility = Visibility.Visible;
                 musicPanel.IsHitTestVisible = true;
-                musicPanel.Opacity = 0;
-                GrowSurfaceFrom(musicPanel, fromHeight, 300);
+                HardSetOpacity(musicPanel, 1);
+                MorphBetween(musicPanel, imageRect, 320);
                 UIElement body = musicPanel.Child as UIElement;
-                if (body != null) Motion.AnimateDouble(body, UIElement.OpacityProperty, 0, 1, 220, Motion.Enter, 40, null);
-                Motion.PopIn(musicPanel, new Point(0.5, 0.15), 0.96, 10, 200, 0, Motion.Drop);
+                if (body != null) Motion.AnimateDouble(body, UIElement.OpacityProperty, 0, 1, 240, Motion.Enter, 60, null);
             }
             else
             {
@@ -4508,19 +4507,19 @@ namespace IslandShot
             }
         }
 
-        // 返回图片面板：先正常收起、再正常展开，动画完全复用「开面板」那条路径
+        // 返回图片面板：音乐面板的形状直接形变成图片面板的形状（不经过胶囊）
         void BackToImagePanelFromMusic()
         {
             if (!musicVisible) return;
             CloseMusicLoginWindow();
-            musicVisible = false;
-            musicLastSurface = false;
             HideMusicLoginPicker();
 
+            Rect from = musicPanel != null ? BoundsInWindow(musicPanel) : Rect.Empty;
+
+            musicVisible = false;
+            musicLastSurface = false;
             if (musicPanel != null)
             {
-                // 只把音乐面板收掉；图片面板交给收起→展开流程去摆，别提前改它的形变，
-                // 否则形变动画会从"已经是满尺寸"开始，看起来就是直接闪出来。
                 musicPanel.Visibility = Visibility.Collapsed;
                 HardSetOpacity(musicPanel, 1);
                 musicPanel.Effect = null;
@@ -4532,15 +4531,16 @@ namespace IslandShot
                 HardSetOpacity(aiPanel, 1);
                 aiPanel.Effect = null;
             }
+            if (panel == null) return;
 
-            // 等收起动画放完（约 400ms）再展开，这样展开的形变才是从胶囊长出来的
-            SetExpanded(false);
-            Motion.Delay(430, delegate
-            {
-                SetExpanded(true);
-                // 动画大约 400ms，等它跑完再做自愈，避免打断形变
-                Motion.Delay(520, delegate { EnsureImageSurfaceHealthy(); });
-            });
+            panel.Visibility = Visibility.Visible;
+            panel.IsHitTestVisible = true;
+            HardSetOpacity(panel, 1);
+            ReloadCardImages();
+            MorphBetween(panel, from, 320);
+
+            // 形变跑完再自愈一遍，防残留黑底
+            Motion.Delay(430, delegate { EnsureImageSurfaceHealthy(); });
         }
 
         // × / Esc：走正常的收起动画，下次点胶囊直接回到音乐面板
