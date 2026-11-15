@@ -1650,7 +1650,7 @@ namespace IslandShot
             if (aiPanel != null)
             {
                 aiPanel.Visibility = Visibility.Collapsed;
-                aiPanel.Opacity = 1;
+                HardSetOpacity(aiPanel, 1);
                 aiPanel.Effect = null;
             }
 
@@ -1661,22 +1661,17 @@ namespace IslandShot
             Motion.Prepare(panel, PanelMorphOrigin);
             ScaleTransform scale = Motion.ScaleOf(panel, PanelMorphOrigin);
             TranslateTransform move = Motion.MoveOf(panel);
-            scale.ScaleX = 1;
-            scale.ScaleY = 1;
-            move.Y = 0;
-            // 不做淡入：分层窗口在「切回图片页」的淡入里偶尔会整块变黑。
-            // 直接把图片面板摆好、补缩略图、强制重绘。
-            panel.Opacity = 1;
-            panel.Visibility = Visibility.Visible;
-            panel.IsHitTestVisible = true;
+            HardResetScale(scale);
+            HardResetMove(move);
+            HardSetOpacity(panel, 1);
             if (aiPanel != null)
             {
                 aiPanel.Visibility = Visibility.Collapsed;
-                aiPanel.Opacity = 1;
+                HardSetOpacity(aiPanel, 1);
                 aiPanel.Effect = null;
             }
             ReloadCardImages();
-            Opacity = 1;
+            HardSetOpacity(this, 1);
             panel.InvalidateVisual();
             // 400ms / 1s 各检查一次：哪段动画没跑完都能纠正回来
             Motion.Delay(400, delegate { EnsureImageSurfaceHealthy(); });

@@ -4518,7 +4518,7 @@ namespace IslandShot
             {
                 // 直接收掉，不做淡出：淡出动画被打断时音乐面板会留在上面（表现为一片黑底）
                 musicPanel.Visibility = Visibility.Collapsed;
-                musicPanel.Opacity = 1;
+                HardSetOpacity(musicPanel, 1);
                 musicPanel.Effect = null;
                 musicPanel.IsHitTestVisible = true;
             }
@@ -4529,12 +4529,11 @@ namespace IslandShot
             Motion.Prepare(panel, PanelMorphOrigin);
             ScaleTransform scale = Motion.ScaleOf(panel, PanelMorphOrigin);
             TranslateTransform move = Motion.MoveOf(panel);
-            scale.ScaleX = 1;
-            scale.ScaleY = 1;
-            move.Y = 0;
-            panel.Opacity = 1;
+            HardResetScale(scale);
+            HardResetMove(move);
+            HardSetOpacity(panel, 1);
             ReloadCardImages();
-            Opacity = 1;
+            HardSetOpacity(this, 1);
             panel.InvalidateVisual();
             // 400ms / 1s 各检查一次：哪段动画没跑完都能纠正回来
             Motion.Delay(400, delegate { EnsureImageSurfaceHealthy(); });

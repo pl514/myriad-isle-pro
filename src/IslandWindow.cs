@@ -1139,6 +1139,37 @@ namespace IslandShot
             else Motion.Delay(380, delegate { UpdateCapsuleMusicMode(); });
         }
 
+        // 关键：动画在跑的时候直接赋值会被动画覆盖（这就是"设了 op=1 却还是黑"的原因）。
+        // 先把 Opacity / Scale 上的动画摘掉，再写值。
+        internal static void HardSetOpacity(UIElement element, double value)
+        {
+            if (element == null) return;
+            try { element.BeginAnimation(UIElement.OpacityProperty, null); } catch (Exception) { }
+            element.Opacity = value;
+        }
+
+        internal static void HardResetScale(ScaleTransform scale)
+        {
+            if (scale == null) return;
+            try
+            {
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            }
+            catch (Exception) { }
+            scale.ScaleX = 1;
+            scale.ScaleY = 1;
+        }
+
+        internal static void HardResetMove(TranslateTransform move)
+        {
+            if (move == null) return;
+            try { move.BeginAnimation(TranslateTransform.XProperty, null); move.BeginAnimation(TranslateTransform.YProperty, null); }
+            catch (Exception) { }
+            move.X = 0;
+            move.Y = 0;
+        }
+
         // 回到图片页之后的"自愈"：不管哪段动画没跑完，都把图片页摆正，
         // 并把音乐/AI 面板彻底收掉（之前的黑屏就是它们残留了一层黑底）。
         internal void EnsureImageSurfaceHealthy()
@@ -1150,26 +1181,26 @@ namespace IslandShot
                 {
                     state += " musicVis op=" + musicPanel.Opacity.ToString("0.00");
                     musicPanel.Visibility = Visibility.Collapsed;
-                    musicPanel.Opacity = 1;
+                    HardSetOpacity(musicPanel, 1);
                     musicPanel.Effect = null;
                 }
                 if (aiPanel != null && aiPanel.Visibility == Visibility.Visible)
                 {
                     state += " aiVis op=" + aiPanel.Opacity.ToString("0.00");
                     aiPanel.Visibility = Visibility.Collapsed;
-                    aiPanel.Opacity = 1;
+                    HardSetOpacity(aiPanel, 1);
                     aiPanel.Effect = null;
                 }
                 if (panel != null)
                 {
                     state += " panelVis=" + panel.Visibility + " op=" + panel.Opacity.ToString("0.00");
                     panel.Visibility = Visibility.Visible;
-                    panel.Opacity = 1;
+                    HardSetOpacity(panel, 1);
                     panel.IsHitTestVisible = true;
                     panel.InvalidateVisual();
                 }
                 state += " winOp=" + Opacity.ToString("0.00");
-                Opacity = 1;
+                HardSetOpacity(this, 1);
                 try
                 {
                     string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
