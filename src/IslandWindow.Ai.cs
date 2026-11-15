@@ -1646,12 +1646,13 @@ namespace IslandShot
 
             aiVisible = false;
             aiLastSurface = false;
-            // 先淡出、再 Collapsed、最后摘掉投影：三步顺序不能乱，
-            // 否则分层窗口会残留 AI 面板的阴影（DropShadowEffect 的缓存）。
-            Motion.Fade(aiPanel, 0, 120, Motion.Exit, 0, delegate
+            // 直接收掉 AI 面板，不做淡出：淡出被打断时会残留一层黑底盖在图片页上
+            if (aiPanel != null)
             {
-                HideAiSurface();
-            });
+                aiPanel.Visibility = Visibility.Collapsed;
+                aiPanel.Opacity = 1;
+                aiPanel.Effect = null;
+            }
 
             if (panel == null) return;
             panel.Visibility = Visibility.Visible;
@@ -1677,6 +1678,9 @@ namespace IslandShot
             ReloadCardImages();
             Opacity = 1;
             panel.InvalidateVisual();
+            // 400ms / 1s 各检查一次：哪段动画没跑完都能纠正回来
+            Motion.Delay(400, delegate { EnsureImageSurfaceHealthy(); });
+            Motion.Delay(1000, delegate { EnsureImageSurfaceHealthy(); });
         }
 
         // WPF 的 DropShadowEffect 会缓存元素内容：面板隐藏后那块缓存仍可能被画出来，

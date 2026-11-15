@@ -1111,6 +1111,25 @@ namespace IslandShot
                 if (panel != null) panel.Visibility = Visibility.Collapsed;
             }
             if (mouseHook != null) mouseHook.Enabled = value;
+            if (!value)
+            {
+                // 整体收起：把音乐/AI 面板彻底收掉并复位透明度。
+                // 只靠 lastSurface 记忆决定下次展开回到哪页，避免残留一层黑底。
+                musicVisible = false;
+                aiVisible = false;
+                if (musicPanel != null)
+                {
+                    musicPanel.Visibility = Visibility.Collapsed;
+                    musicPanel.Opacity = 1;
+                    musicPanel.Effect = null;
+                }
+                if (aiPanel != null)
+                {
+                    aiPanel.Visibility = Visibility.Collapsed;
+                    aiPanel.Opacity = 1;
+                    aiPanel.Effect = null;
+                }
+            }
             SetExpandedAnimated(value);
             if (!value) ResetOrbHubInstant();
             if (value) RefreshPanelNoticeChip();   // 只按当前未读刷新，不重新标记
@@ -1118,6 +1137,49 @@ namespace IslandShot
             // 收起后如果正在放歌：胶囊变宽成迷你播放器（等形变播完再变，避免两段动画打架）
             if (value) UpdateCapsuleMusicMode();
             else Motion.Delay(380, delegate { UpdateCapsuleMusicMode(); });
+        }
+
+        // 回到图片页之后的"自愈"：不管哪段动画没跑完，都把图片页摆正，
+        // 并把音乐/AI 面板彻底收掉（之前的黑屏就是它们残留了一层黑底）。
+        internal void EnsureImageSurfaceHealthy()
+        {
+            try
+            {
+                string state = "";
+                if (musicPanel != null && musicPanel.Visibility == Visibility.Visible)
+                {
+                    state += " musicVis op=" + musicPanel.Opacity.ToString("0.00");
+                    musicPanel.Visibility = Visibility.Collapsed;
+                    musicPanel.Opacity = 1;
+                    musicPanel.Effect = null;
+                }
+                if (aiPanel != null && aiPanel.Visibility == Visibility.Visible)
+                {
+                    state += " aiVis op=" + aiPanel.Opacity.ToString("0.00");
+                    aiPanel.Visibility = Visibility.Collapsed;
+                    aiPanel.Opacity = 1;
+                    aiPanel.Effect = null;
+                }
+                if (panel != null)
+                {
+                    state += " panelVis=" + panel.Visibility + " op=" + panel.Opacity.ToString("0.00");
+                    panel.Visibility = Visibility.Visible;
+                    panel.Opacity = 1;
+                    panel.IsHitTestVisible = true;
+                    panel.InvalidateVisual();
+                }
+                state += " winOp=" + Opacity.ToString("0.00");
+                Opacity = 1;
+                try
+                {
+                    string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                    File.AppendAllText(Path.Combine(dir, "ui.log"),
+                        DateTime.Now.ToString("HH:mm:ss") + " heal:" + state + Environment.NewLine);
+                }
+                catch (Exception) { }
+            }
+            catch (Exception) { }
         }
 
         // 分层窗口偶尔会在切面板后留下"没画面"的黑块：抖一下 Opacity 强制 DWM 重组

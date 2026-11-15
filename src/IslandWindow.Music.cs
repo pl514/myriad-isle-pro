@@ -4516,8 +4516,11 @@ namespace IslandShot
 
             if (musicPanel != null)
             {
-                // 先淡出、再 Collapsed、最后摘掉投影（和 AI 面板同样的顺序，避免残留阴影缓存）
-                Motion.Fade(musicPanel, 0, 120, Motion.Exit, 0, delegate { HideMusicSurface(); });
+                // 直接收掉，不做淡出：淡出动画被打断时音乐面板会留在上面（表现为一片黑底）
+                musicPanel.Visibility = Visibility.Collapsed;
+                musicPanel.Opacity = 1;
+                musicPanel.Effect = null;
+                musicPanel.IsHitTestVisible = true;
             }
 
             if (panel == null) return;
@@ -4529,19 +4532,13 @@ namespace IslandShot
             scale.ScaleX = 1;
             scale.ScaleY = 1;
             move.Y = 0;
-            // 不做淡入：分层窗口在「切回图片页」的淡入里偶尔会整块变黑。
             panel.Opacity = 1;
-            panel.Visibility = Visibility.Visible;
-            panel.IsHitTestVisible = true;
-            if (musicPanel != null)
-            {
-                musicPanel.Visibility = Visibility.Collapsed;
-                musicPanel.Opacity = 1;
-                musicPanel.Effect = null;
-            }
             ReloadCardImages();
             Opacity = 1;
             panel.InvalidateVisual();
+            // 400ms / 1s 各检查一次：哪段动画没跑完都能纠正回来
+            Motion.Delay(400, delegate { EnsureImageSurfaceHealthy(); });
+            Motion.Delay(1000, delegate { EnsureImageSurfaceHealthy(); });
         }
 
         // × / Esc：走正常的收起动画，下次点胶囊直接回到音乐面板
