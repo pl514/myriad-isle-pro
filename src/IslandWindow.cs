@@ -1200,7 +1200,15 @@ namespace IslandShot
                     panel.InvalidateVisual();
                 }
                 state += " winOp=" + Opacity.ToString("0.00");
+                state += " win=" + Width.ToString("0") + "x" + Height.ToString("0");
+                if (capsule != null) state += " capVis=" + capsule.Visibility + " capOp=" + capsule.Opacity.ToString("0.00");
+                if (panel != null)
+                {
+                    ScaleTransform ps = Motion.ScaleOf(panel, PanelMorphOrigin);
+                    if (ps != null) state += " pScale=" + ps.ScaleX.ToString("0.00") + "," + ps.ScaleY.ToString("0.00");
+                }
                 HardSetOpacity(this, 1);
+                ForceRepaint();
                 try
                 {
                     string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
@@ -1213,23 +1221,28 @@ namespace IslandShot
             catch (Exception) { }
         }
 
-        // 分层窗口偶尔会在切面板后留下"没画面"的黑块：抖一下 Opacity 强制 DWM 重组
+        // 分层窗口偶尔会在切面板后留下"没画面"的黑块。
+        // 这里做三件事：摘掉动画、把窗口尺寸抖 1px（强制重建分层窗口表面）、再重绘。
         internal void ForceRepaint()
         {
             try
             {
-                double current = Opacity;
-                if (current <= 0) current = 1;
-                Opacity = 0.996;
-                Dispatcher.BeginInvoke(new Action(delegate
+                HardSetOpacity(this, 1);
+                InvalidateVisual();
+                double w = Width;
+                if (w > 10)
                 {
-                    try
+                    Width = w + 1;
+                    Dispatcher.BeginInvoke(new Action(delegate
                     {
-                        Opacity = current;
-                        InvalidateVisual();
-                    }
-                    catch (Exception) { }
-                }), System.Windows.Threading.DispatcherPriority.Render);
+                        try
+                        {
+                            Width = w;
+                            InvalidateVisual();
+                        }
+                        catch (Exception) { }
+                    }), System.Windows.Threading.DispatcherPriority.Render);
+                }
             }
             catch (Exception) { }
         }
