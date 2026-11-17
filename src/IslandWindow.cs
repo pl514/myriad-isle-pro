@@ -34,6 +34,7 @@ namespace IslandShot
         const int HotkeyDouyin = 0x4A5A;
         const int HotkeyScreenTranslate = 0x4A5B;
         const int HotkeyMusicPlay = 0x4A5C;
+        const int HotkeyAiPanel = 0x4A5D;
         const uint ModAlt = 0x0001, ModControl = 0x0002, ModShift = 0x0004, ModNoRepeat = 0x4000;
         HotkeyBinding[] hotkeys;
         const uint VkSpace = 0x20, VkA = 0x41, Vk2 = 0x32, Vk3 = 0x33;
@@ -347,6 +348,7 @@ namespace IslandShot
                 else if (id == HotkeyDouyin) ToggleDouyinWindow();
                 else if (id == HotkeyScreenTranslate) StartScreenTranslate();
                 else if (id == HotkeyMusicPlay) QuickRandomPlay();
+                else if (id == HotkeyAiPanel) HotkeyOpenAi();
                 handled = true;
             }
             else if (message == WM_CLIPBOARDUPDATE)
@@ -2269,6 +2271,7 @@ namespace IslandShot
             if (action == HotkeyAction.DouyinToggle) return HotkeyDouyin;
             if (action == HotkeyAction.ScreenTranslate) return HotkeyScreenTranslate;
             if (action == HotkeyAction.MusicPlay) return HotkeyMusicPlay;
+            if (action == HotkeyAction.AiPanel) return HotkeyAiPanel;
             return HotkeyRecord;
         }
 
@@ -2294,6 +2297,7 @@ namespace IslandShot
             UnregisterHotKey(handle, HotkeyDouyin);
             UnregisterHotKey(handle, HotkeyScreenTranslate);
             UnregisterHotKey(handle, HotkeyMusicPlay);
+            UnregisterHotKey(handle, HotkeyAiPanel);
         }
 
         string ApplyHotkeys(HotkeyBinding[] next)
@@ -2449,7 +2453,14 @@ namespace IslandShot
                     delegate { OpenPhonePair(); },
                     delegate { ShowSkinPicker(); },
                     NeonSkin.CurrentName);
-                menu.Closed += delegate { if (parent != null) parent.ChildOpen = false; };
+                menu.Closed += delegate
+                {
+                    if (parent == null) return;
+                    parent.ChildOpen = false;
+                    // 更多操作收起时（点空白、Esc 或选了某一项），父级托盘菜单也一起收起，
+                    // 否则会出现"只关了更多操作，万象岛 Pro 面板还留在桌面"。
+                    try { if (parent.IsVisible) parent.Close(); } catch (Exception) { }
+                };
                 menu.ShowLeftOf(parent);
             }
             catch (Exception exception)

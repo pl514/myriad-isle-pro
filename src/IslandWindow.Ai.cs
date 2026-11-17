@@ -622,7 +622,6 @@ namespace IslandShot
         void NewAiTask()
         {
             if (aiCurrent != null) aiTaskTurns.Remove(aiCurrent.Id);
-            ShowToolMessage("新任务", "已切断上文。skill 和已经攒下的教训仍然保留。");
         }
 
         Button BuildAiNewTaskButton()
@@ -1229,33 +1228,8 @@ namespace IslandShot
 
             OpenAiPanel();
             for (int i = 0; i < picked.Count; i++) AddAiAttachment(picked[i]);
-
-            // 图片现在有两条路：网页版上传，或者 API 模型（models.txt 里勾了「视觉」）。
-            // 两样都不满足时才顺手切到网页版，免得发的时候被拦。
-            AiModelConfig current = CurrentAiModel();
-            bool apiVision = current != null && current.Vision && !CurrentModelIsWeb();
-            if (!CurrentModelIsWeb() && !apiVision)
-            {
-                AiModelConfig web = FirstWebModel();
-                if (web != null)
-                {
-                    ApplyAiModel(web);
-                    ShowToolMessage("发送到 AI", "已切到「" + web.DisplayName() + "」（当前模型不支持图片）");
-                }
-            }
             FocusAiInput();
         }
-
-        AiModelConfig FirstWebModel()
-        {
-            for (int i = 0; i < aiModels.Count; i++)
-            {
-                AiModelConfig model = aiModels[i];
-                if (model != null && WebSiteOf(model).Length > 0) return model;
-            }
-            return null;
-        }
-
 
         void AddAiAttachment(string path)
         {
@@ -1586,9 +1560,35 @@ namespace IslandShot
             aiModelOptions.Child = stack;
         }
 
+        // 快捷键「打开 AI 面板」：直接从胶囊/其它面板进 AI，省得手点球
+        void HotkeyOpenAi()
+        {
+            try
+            {
+                if (aiPanel == null) return;
+                // 从音乐面板过来：先把音乐面板收掉，避免两块面板叠在一起
+                if (musicVisible && musicPanel != null)
+                {
+                    musicVisible = false;
+                    musicLastSurface = false;
+                    musicPanel.Visibility = Visibility.Collapsed;
+                    HardSetOpacity(musicPanel, 1);
+                    musicPanel.Effect = null;
+                }
+                OpenAiPanel();
+                if (!expanded) SetExpanded(true);
+                Activate();
+                Focus();
+                FocusAiInput();
+            }
+            catch (Exception) { }
+        }
+
         void OpenAiPanel()
         {
             if (aiPanel == null) return;
+            bool directOrb = orbDirectSwitch;
+            orbDirectSwitch = false;
             if (aiVisible && expanded && aiPanel.Visibility == Visibility.Visible)
             {
                 FocusAiInput();
@@ -1599,6 +1599,13 @@ namespace IslandShot
             RestoreAiChatVisuals();
             bool fromImagePanel = expanded;
             Rect imageRect = (fromImagePanel && panel != null) ? BoundsInWindow(panel) : Rect.Empty;
+            if (fromImagePanel && (imageRect.IsEmpty || imageRect.Width < 1) && panel != null)
+            {
+                double pw = !double.IsNaN(panel.Width) && panel.Width > 0 ? panel.Width : panel.ActualWidth;
+                double ph = !double.IsNaN(panel.Height) && panel.Height > 0 ? panel.Height : panel.ActualHeight;
+                if (pw > 1 && ph > 1)
+                    imageRect = new Rect((ActualWidth - pw) / 2, panel.Margin.Top, pw, ph);
+            }
             aiVisible = true;
             aiLastSurface = true;
             EnsureAiShadow();
@@ -1611,9 +1618,22 @@ namespace IslandShot
                 aiPanel.Visibility = Visibility.Visible;
                 aiPanel.IsHitTestVisible = true;
                 HardSetOpacity(aiPanel, 1);
-                MorphBetween(aiPanel, imageRect, 320);
-                UIElement aiBody = aiPanel.Child as UIElement;
-                if (aiBody != null) Motion.AnimateDouble(aiBody, UIElement.OpacityProperty, 0, 1, 240, Motion.Enter, 60, null);
+                if (directOrb && NeonSkin.Active)
+                {
+                    // 赛博朋克的小球切换：不拉长，先闪一下再露出面板。
+                    HardResetScale(Motion.ScaleOf(aiPanel, new Point(0, 0)));
+                    HardResetMove(Motion.MoveOf(aiPanel));
+                    PlayOrbSwitchFlash(aiPanel);
+                }
+                else
+                {
+                    MorphBetween(aiPanel, imageRect, 320);
+                    if (!NeonSkin.Active)
+                    {
+                        UIElement aiBody = aiPanel.Child as UIElement;
+                        if (aiBody != null) Motion.AnimateDouble(aiBody, UIElement.OpacityProperty, 0, 1, 240, Motion.Enter, 60, null);
+                    }
+                }
             }
             else
             {
@@ -1621,6 +1641,7 @@ namespace IslandShot
             }
 
             FocusAiInput();
+            NeonChrome.GlitchSurface(aiPanel);
 
             // 每次打开都落到最新一条，否则会停在上次的位置（顶部），要手动点「↓ 最新」。
             // 面板刚显示时布局还没完成，ScrollToEnd 会落空，所以动画结束后再补一次。
@@ -1977,7 +1998,6 @@ namespace IslandShot
             if (SkillStore.Has(session.Id))
             {
                 SkillStore.Remove(session.Id);
-                ShowToolMessage("skill", "这个对话已卸下 skill，下次提问不再带前置说明。");
                 return;
             }
 
@@ -1989,8 +2009,6 @@ namespace IslandShot
                 try
                 {
                     SkillStore.Install(session.Id, dialog.FileName);
-                    ShowToolMessage("skill", "已装配：" + System.IO.Path.GetFileName(dialog.FileName)
-                        + "。只对这个对话生效，其它对话不受影响。");
                 }
                 catch (Exception ex)
                 {
@@ -2014,7 +2032,7 @@ namespace IslandShot
             }
             if (archived > 0)
             {
-                ShowToolMessage("删除会话", "网页版那边也归档了 " + archived + " 条对话。");
+                // 归档成功不再提示，失败才需要人工处理。
             }
             else
             {
@@ -2234,14 +2252,7 @@ namespace IslandShot
                         ShowToolMessage("PLC 自检（已保存，但有 " + warns.Count + " 处要注意）",
                             string.Join("\n", warns.ToArray()));
 
-                        // 快到上限时提醒人工挑，不自动删
-                        if (learned == SkillStore.LearnedWarnAt || learned == SkillStore.LearnedWarnAt + 4
-                            || learned >= SkillStore.LearnedLimit)
-                        {
-                            ShowToolMessage("教训已到 " + learned + " 条（上限 " + SkillStore.LearnedLimit + "）",
-                                "建议打开 build\\data\\skills\\" + (sid == null ? "" : sid) + ".learned.txt 看一下，"
-                                + "把已经不会再犯的删掉。到上限后不会自动删除，只是不再新增。");
-                        }
+                        // 接近上限时静默记录，不再弹 toast。
                     }
                 }
                 catch (Exception ex)
@@ -2421,17 +2432,6 @@ namespace IslandShot
         {
             if (aiStreaming || !aiVisible || aiInput == null) return;
 
-            // 图片：网页版走它自己的上传；API 通道把图片编进请求体，前提是模型勾了「视觉」。
-            if (aiAttachments.Count > 0 && !CurrentModelIsWeb())
-            {
-                AiModelConfig currentImageModel = CurrentAiModel();
-                if (currentImageModel == null || !currentImageModel.Vision)
-                {
-                    ShowToolMessage("发送到 AI", "当前模型没勾「视觉」，发不了图片。换一个勾了视觉的模型，或点 D / 豆 小球用网页版。");
-                    return;
-                }
-            }
-
             string text = aiInput.Text == null ? "" : aiInput.Text.Trim();
             if (text.Length == 0 && aiAttachments.Count == 0) return;
             if (text.Length == 0) text = "请看看这张图片。";   // 只拖图不写字时给个默认提问
@@ -2538,6 +2538,7 @@ namespace IslandShot
             {
                 message.Streaming = false;
                 message.Failed = true;
+                NeonNotify.Warn("AI 请求失败", exception.Message);
                 FinishAiMessage(message, exception.Message);
             }
             finally
@@ -2862,7 +2863,6 @@ namespace IslandShot
             aiModels = AiConfigStore.LoadModels();
             aiModelId = "";
             ApplyAiModel(aiModels.Count > 0 ? aiModels[0] : null);
-            ShowToolMessage("删除模型", "已从 models.txt 里删掉这一条（keys.txt 里的 key 保留）。");
         }
 
         void ConfirmAiAddModel()

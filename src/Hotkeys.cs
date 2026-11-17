@@ -16,7 +16,8 @@ namespace IslandShot
         Record = 6,
         DouyinToggle = 7,
         ScreenTranslate = 8,
-        MusicPlay = 9
+        MusicPlay = 9,
+        AiPanel = 10
     }
 
     internal sealed class HotkeyBinding
@@ -42,6 +43,7 @@ namespace IslandShot
                 if (Action == HotkeyAction.DouyinToggle) return "抖音小窗 收起/显示";
                 if (Action == HotkeyAction.ScreenTranslate) return "屏幕翻译";
                 if (Action == HotkeyAction.MusicPlay) return "一键放歌";
+                if (Action == HotkeyAction.AiPanel) return "打开 AI 面板";
                 return "开始/停止录屏";
             }
         }
@@ -86,6 +88,7 @@ namespace IslandShot
                 new HotkeyBinding { Action = HotkeyAction.DouyinToggle, Modifiers = ModControl | ModAlt | ModShift, Key = 0x44 },
                 new HotkeyBinding { Action = HotkeyAction.ScreenTranslate, Modifiers = ModControl | ModAlt | ModShift, Key = 0x46 },
                 new HotkeyBinding { Action = HotkeyAction.MusicPlay, Modifiers = ModControl | ModAlt | ModShift, Key = 0x4D },
+                new HotkeyBinding { Action = HotkeyAction.AiPanel, Modifiers = ModControl | ModAlt | ModShift, Key = 0x49 },
             };
         }
 
