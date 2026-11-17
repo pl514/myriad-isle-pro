@@ -95,24 +95,46 @@ namespace IslandShot
                 status.Text = "先在音乐面板选一个平台并登录，再回来选歌单。";
                 return;
             }
+
+            // ① 先用本地缓存把列表显示出来（打开过音乐面板就有缓存）
+            List<MusicPlaylistInfo> cached = MusicCache.LoadPlaylists(platform.Id);
+            if (cached != null && cached.Count > 0)
+            {
+                Render(cached);
+                status.Text = "本地缓存（正在刷新…）";
+            }
+            else
+            {
+                status.Text = "正在读取歌单…";
+            }
+
+            // ② 后台刷新：成功就覆盖列表；失败但有缓存就保留缓存
             MusicImport.LoadPlaylists(platform, delegate(List<MusicPlaylistInfo> lists)
             {
-                status.Text = lists == null || lists.Count == 0 ? "这个平台没有读到歌单。" : "点一个歌单即可设为默认：";
-                if (includeDefault)
+                if (lists == null || lists.Count == 0)
                 {
-                    list.Children.Add(BuildRow(null, "默认（第一个歌单）"));
+                    status.Text = cached == null ? "没读到歌单：接口返回空（登录态可能失效，回音乐面板重新登录一次）" : "刷新失败，已显示本地缓存的歌单";
+                    return;
                 }
-                if (lists != null)
-                {
-                    for (int i = 0; i < lists.Count; i++)
-                    {
-                        list.Children.Add(BuildRow(lists[i], lists[i].Name + "  ·  " + lists[i].Count + " 首"));
-                    }
-                }
+                MusicCache.SavePlaylists(platform.Id, lists);
+                Render(lists);
+                status.Text = "点一个歌单即可设为默认：";
             }, delegate(string message)
             {
-                status.Text = "读取歌单失败：" + message;
+                status.Text = cached == null
+                    ? "读取歌单失败：" + message
+                    : "刷新失败（已用本地缓存）：" + message;
             });
+        }
+
+        void Render(List<MusicPlaylistInfo> lists)
+        {
+            list.Children.Clear();
+            list.Children.Add(BuildRow(null, "默认（第一个歌单）"));
+            for (int i = 0; i < lists.Count; i++)
+            {
+                list.Children.Add(BuildRow(lists[i], lists[i].Name + "  ·  " + lists[i].Count + " 首"));
+            }
         }
 
         Button BuildRow(MusicPlaylistInfo info, string text)

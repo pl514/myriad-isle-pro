@@ -3112,7 +3112,7 @@ namespace IslandShot
                 {
                     if (musicSongs.Count == 0)
                     {
-                        ShowToolMessage("一键放歌", "歌单里没有能播的歌");
+                        ShowToolMessage("一键放歌", "读不到歌单：回音乐面板重新登录一次音乐平台");
                         return;
                     }
                     QuickRandomPlay();
@@ -3154,6 +3154,20 @@ namespace IslandShot
         }
 
         // 读「一键放歌」指定歌单的歌曲（没指定就用第一个歌单）
+        // 按设定挑歌单；没设定就第一个
+        static MusicPlaylistInfo PickQuickPlaylist(List<MusicPlaylistInfo> lists)
+        {
+            if (lists == null || lists.Count == 0) return null;
+            if (!string.IsNullOrEmpty(QuickPlayStore.PlaylistId))
+            {
+                for (int i = 0; i < lists.Count; i++)
+                {
+                    if (string.Equals(lists[i].Id, QuickPlayStore.PlaylistId, StringComparison.Ordinal)) return lists[i];
+                }
+            }
+            return lists[0];
+        }
+
         void LoadQuickPlaySongs(MusicPlatform platform, Action done)
         {
             if (platform == null)
@@ -3161,26 +3175,34 @@ namespace IslandShot
                 if (done != null) done();
                 return;
             }
+            bool reported = false;
+            // ① 先吃本地缓存：接口偶尔会返回 80030（未登录/限流），有缓存就不会空手
+            MusicPlaylistInfo cachedTarget = PickQuickPlaylist(MusicCache.LoadPlaylists(platform.Id));
+            if (cachedTarget != null)
+            {
+                List<MusicSongInfo> cachedSongs = MusicCache.LoadSongs(platform.Id, cachedTarget.Id);
+                if (cachedSongs != null && cachedSongs.Count > 0)
+                {
+                    musicSongs = cachedSongs;
+                    musicSelectedPlaylistId = cachedTarget.Id;
+                    musicShufflePlayed.Clear();
+                    reported = true;
+                    MusicDebug("quick play: songs from cache " + cachedSongs.Count);
+                    if (done != null) done();
+                }
+            }
+
+            // ② 后台再刷新一次（刷新到了就换成最新的）
             MusicImport.LoadPlaylists(platform, delegate(List<MusicPlaylistInfo> lists)
             {
                 if (lists == null || lists.Count == 0)
                 {
                     MusicDebug("quick play: no playlist");
-                    if (done != null) done();
+                    if (!reported && done != null) done();
                     return;
                 }
-                MusicPlaylistInfo target = null;
-                if (!string.IsNullOrEmpty(QuickPlayStore.PlaylistId))
-                {
-                    for (int i = 0; i < lists.Count; i++)
-                    {
-                        if (string.Equals(lists[i].Id, QuickPlayStore.PlaylistId, StringComparison.Ordinal))
-                        {
-                            target = lists[i];
-                            break;
-                        }
-                    }
-                }
+                MusicCache.SavePlaylists(platform.Id, lists);
+                MusicPlaylistInfo target = PickQuickPlaylist(lists);
                 if (target == null) target = lists[0];
                 musicSelectedPlaylistId = target.Id;
                 MusicDebug("quick play: playlist " + target.Name);
@@ -3190,16 +3212,16 @@ namespace IslandShot
                     MusicCache.SaveSongs(platform.Id, target.Id, songs);
                     musicShufflePlayed.Clear();
                     MusicDebug("quick play: songs " + songs.Count);
-                    if (done != null) done();
+                    if (!reported && done != null) done();
                 }, delegate(string message)
                 {
                     MusicDebug("quick play songs failed: " + message);
-                    if (done != null) done();
+                    if (!reported && done != null) done();
                 });
             }, delegate(string message)
             {
                 MusicDebug("quick play lists failed: " + message);
-                if (done != null) done();
+                if (!reported && done != null) done();
             });
         }
 
