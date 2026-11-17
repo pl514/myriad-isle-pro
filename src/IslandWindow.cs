@@ -33,6 +33,7 @@ namespace IslandShot
         const int HotkeyStopRecord = 0x4A59;
         const int HotkeyDouyin = 0x4A5A;
         const int HotkeyScreenTranslate = 0x4A5B;
+        const int HotkeyMusicPlay = 0x4A5C;
         const uint ModAlt = 0x0001, ModControl = 0x0002, ModShift = 0x0004, ModNoRepeat = 0x4000;
         HotkeyBinding[] hotkeys;
         const uint VkSpace = 0x20, VkA = 0x41, Vk2 = 0x32, Vk3 = 0x33;
@@ -90,6 +91,8 @@ namespace IslandShot
         TrayMenuWindow trayMenuWindow;
         MouseHookService mouseHook;
         ScreenRecorder recorder;
+        RecordingEscHook recordingEscHook;
+        bool stopRecordingRequested;
         readonly List<DetachedImageViewerWindow> detachedWindows = new List<DetachedImageViewerWindow>();
 
         public IslandWindow()
@@ -117,8 +120,11 @@ namespace IslandShot
             placementPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "window.txt");
             textsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "texts.txt");
             AppSettings.Init(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data"));
+            // 皮肤引擎：在建界面之前初始化，窗口 Loaded 时就能上色 / 装 HUD 框。
+            NeonSkin.Initialize();
             LoadTextHistory();
             hotkeys = HotkeyStore.Load();
+            QuickPlayStore.Load();
 
             var root = new Grid();
             capsule = BuildCapsule();
@@ -133,6 +139,17 @@ namespace IslandShot
             root.Children.Add(aiPanel);
             root.Children.Add(musicPanel);
             Content = root;
+
+            // 赛博朋克皮肤：登记四块主面板（切皮肤时才真正装框），并同步胶囊 / 页签这类
+            // 引擎拿不到的部件。原皮时这里只登记不动作。
+            NeonSkin.Register(capsule, NeonDeck.Capsule);
+            NeonSkin.Register(panel, NeonDeck.Deck);
+            NeonSkin.Register(aiPanel, NeonDeck.Console);
+            NeonSkin.Register(musicPanel, NeonDeck.Console);
+            NeonSkin.MusicPlayingHook = delegate { return musicPlaying; };
+            NeonSkin.Changed += RefreshNeonExtras;
+            NeonSkin.StyleSubtree(root);
+            RefreshNeonExtras();
 
             AttachCapsuleGestures();
             // 提示点击：窗口级隧道拦截，保证不会先被胶囊手势拿去展开面板
@@ -277,6 +294,12 @@ namespace IslandShot
             {
                 MusicDebug("esc key=" + e.Key + " expanded=" + expanded + " music=" + musicVisible + " ai=" + aiVisible);
                 if (e.Key != Key.Escape) return;
+                if (recorder != null && recorder.Recording)
+                {
+                    StopRecording();
+                    e.Handled = true;
+                    return;
+                }
                 if (musicStageWindow != null || musicWebStageWindow != null)
                 {
                     CloseMusicStage();
@@ -323,6 +346,7 @@ namespace IslandShot
                 else if (id == HotkeyStopRecord) StopRecording();
                 else if (id == HotkeyDouyin) ToggleDouyinWindow();
                 else if (id == HotkeyScreenTranslate) StartScreenTranslate();
+                else if (id == HotkeyMusicPlay) QuickRandomPlay();
                 handled = true;
             }
             else if (message == WM_CLIPBOARDUPDATE)
@@ -1325,22 +1349,37 @@ namespace IslandShot
                                 return;
                             }
                             AddVideo(path);
-                            tray.ShowBalloonTip(4000, "录屏完成", "视频已挂到胶囊里。", Forms.ToolTipIcon.Info);
+                            if (!NeonNotify.Info("录屏完成", "视频已挂到胶囊里。"))
+                                tray.ShowBalloonTip(4000, "录屏完成", "视频已挂到胶囊里。", Forms.ToolTipIcon.Info);
                         }));
                     };
                 }
                 if (recorder.Recording)
                 {
-                    tray.ShowBalloonTip(3000, "正在录屏", "按 Esc 停止录屏。", Forms.ToolTipIcon.Info);
-                }
-                else if (recorder.Start())
-                {
-                    RegisterStopRecording();
-                    tray.ShowBalloonTip(4000, "开始录屏", "按 Esc 停止录屏。", Forms.ToolTipIcon.Info);
+                    // 再按一次录屏热键也直接停，避免只能靠 Esc。
+                    StopRecording();
                 }
                 else
                 {
-                    tray.ShowBalloonTip(6000, "无法开始录屏", recorder.Error, Forms.ToolTipIcon.Warning);
+                    stopRecordingRequested = false;
+                    RegisterStopRecording();
+                    if (recorder.Start())
+                    {
+                        if (stopRecordingRequested)
+                        {
+                            stopRecordingRequested = false;
+                            StopRecording();
+                            return;
+                        }
+                        if (!NeonNotify.RecordingStart())
+                            tray.ShowBalloonTip(4000, "开始录屏", "按 Esc 停止录屏。", Forms.ToolTipIcon.Info);
+                    }
+                    else
+                    {
+                        UnregisterStopRecording();
+                        if (!NeonNotify.Warn("无法开始录屏", recorder.Error ?? "没有生成有效的视频文件。"))
+                            tray.ShowBalloonTip(6000, "无法开始录屏", recorder.Error, Forms.ToolTipIcon.Warning);
+                    }
                 }
             }
             catch (Exception exception)
@@ -1351,22 +1390,49 @@ namespace IslandShot
 
         void RegisterStopRecording()
         {
-            if (handle == IntPtr.Zero) return;
-            if (!RegisterHotKey(handle, HotkeyStopRecord, ModNoRepeat, 0x1B))
-                DragNative.Log("record stop hotkey registration failed");
+            // 裸 Esc 的 RegisterHotKey 很容易被系统/其它程序拒绝；
+            // 另外挂一个低级键盘钩子兜底，录屏期间按 Esc 一定停。
+            if (recordingEscHook != null)
+            {
+                try { recordingEscHook.Dispose(); } catch (Exception) { }
+                recordingEscHook = null;
+            }
+            recordingEscHook = new RecordingEscHook(delegate
+            {
+                try { Dispatcher.BeginInvoke(new Action(StopRecording)); } catch (Exception) { }
+            });
+            recordingEscHook.Start();
+            if (handle != IntPtr.Zero)
+            {
+                UnregisterHotKey(handle, HotkeyStopRecord);
+                if (!RegisterHotKey(handle, HotkeyStopRecord, ModNoRepeat, 0x1B))
+                    DragNative.Log("record stop hotkey registration failed; low-level hook will handle Esc");
+            }
         }
 
         void UnregisterStopRecording()
         {
+            if (recordingEscHook != null)
+            {
+                try { recordingEscHook.Dispose(); } catch (Exception) { }
+                recordingEscHook = null;
+            }
             if (handle != IntPtr.Zero) UnregisterHotKey(handle, HotkeyStopRecord);
         }
 
         void StopRecording()
         {
-            if (recorder == null || !recorder.Recording) return;
+            if (recorder == null) return;
+            if (!recorder.Recording)
+            {
+                // 刚点开始、ffmpeg 还没完全进入 Recording 的瞬间按了 Esc：
+                // 先记下请求，Start 成功后立即停，不把录屏卡住。
+                stopRecordingRequested = true;
+                return;
+            }
+            stopRecordingRequested = false;
             UnregisterStopRecording();
             recorder.Stop();
-            tray.ShowBalloonTip(4000, "正在结束录屏", "视频处理完成后会自动挂到胶囊。", Forms.ToolTipIcon.Info);
         }
 
         void OpenVideo(string path)
@@ -1379,6 +1445,7 @@ namespace IslandShot
             catch (Exception exception)
             {
                 DragNative.Log("video open failed: " + exception.Message);
+                if (!NeonNotify.Warn("无法打开视频", "无法打开视频：" + exception.Message))
                 MessageBox.Show("无法打开视频：" + exception.Message, "万象岛 Pro", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
@@ -2201,6 +2268,7 @@ namespace IslandShot
             if (action == HotkeyAction.ImagesToggle) return HotkeyImages;
             if (action == HotkeyAction.DouyinToggle) return HotkeyDouyin;
             if (action == HotkeyAction.ScreenTranslate) return HotkeyScreenTranslate;
+            if (action == HotkeyAction.MusicPlay) return HotkeyMusicPlay;
             return HotkeyRecord;
         }
 
@@ -2225,6 +2293,7 @@ namespace IslandShot
             UnregisterHotKey(handle, HotkeyRecord);
             UnregisterHotKey(handle, HotkeyDouyin);
             UnregisterHotKey(handle, HotkeyScreenTranslate);
+            UnregisterHotKey(handle, HotkeyMusicPlay);
         }
 
         string ApplyHotkeys(HotkeyBinding[] next)
@@ -2349,8 +2418,12 @@ namespace IslandShot
                     delegate { if (menu != null) ShowMoreMenu(menu); },
                     delegate { ToggleStartup(); },
                     StartupEnabled(),
+                    delegate { AppSettings.SoundEnabled = !AppSettings.SoundEnabled; },
+                    AppSettings.SoundEnabled,
                     delegate { RelaunchNormal(); },
-                    delegate { Close(); });
+                    delegate { Close(); },
+                    delegate { ShowSkinPicker(); },
+                    NeonSkin.CurrentName);
                 trayMenuWindow = menu;
                 menu.Closed += delegate { if (trayMenuWindow == menu) trayMenuWindow = null; };
                 menu.ShowAtCursor();
@@ -2373,7 +2446,9 @@ namespace IslandShot
                     delegate { ClearCards(); },
                     delegate { CapsuleEyesEnabled = !CapsuleEyesEnabled; },
                     CapsuleEyesEnabled,
-                    delegate { OpenPhonePair(); });
+                    delegate { OpenPhonePair(); },
+                    delegate { ShowSkinPicker(); },
+                    NeonSkin.CurrentName);
                 menu.Closed += delegate { if (parent != null) parent.ChildOpen = false; };
                 menu.ShowLeftOf(parent);
             }
@@ -2382,6 +2457,376 @@ namespace IslandShot
                 if (parent != null) parent.ChildOpen = false;
                 DragNative.Log("more menu failed: " + exception.Message);
             }
+        }
+
+
+
+
+        SkinStudioWindow skinStudioWindow;
+
+        /// <summary>
+        /// 皮肤切换后同步胶囊这类「app 侧特有」的部件：眼睛颜色、页签编号、面板重装。
+        /// 原皮时全部回到原值。
+        /// </summary>
+        void RefreshNeonExtras()
+        {
+            try
+            {
+                if (NeonSkin.Active)
+                {
+                    if (capsuleEyes != null) capsuleEyes.EyeColor = NeonSkin.Yellow;
+                    NeonSkin.MarkTabs(imageTab, textTab, translateTab);
+                }
+                else if (capsuleEyes != null)
+                {
+                    capsuleEyes.EyeColor = Color.FromRgb(94, 200, 255);
+                }
+            }
+            catch (Exception exception)
+            {
+                DragNative.Log("neon extras failed: " + exception.Message);
+            }
+        }
+
+        internal void ShowSkinPicker()
+        {
+            try
+            {
+                if (skinStudioWindow != null)
+                {
+                    try { skinStudioWindow.Close(); } catch (Exception) { }
+                    skinStudioWindow = null;
+                }
+                var studio = new SkinStudioWindow();
+                skinStudioWindow = studio;
+                studio.Closed += delegate { if (skinStudioWindow == studio) skinStudioWindow = null; };
+                studio.ShowCentered();
+            }
+            catch (Exception exception)
+            {
+                DragNative.Log("skin studio failed: " + exception.Message);
+            }
+        }
+
+        /// <summary>
+        /// --skin-demo 启动参数用：展开面板 / 弹工作台，方便截图验收。
+        /// 只给调试用；用独立互斥体和独立 data 目录，不影响正式实例。
+        /// </summary>
+        internal void StartSkinDemo(string mode)
+        {
+            try
+            {
+                NeonSkin.SetSkin(AppSettings.SkinId);
+                if (mode == "capsule") return;
+                if (mode == "xtranslate")
+                {
+                    var xtTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    xtTimer.Tick += delegate
+                    {
+                        xtTimer.Stop();
+                        try { StartScreenTranslate(); } catch (Exception) { }
+                    };
+                    xtTimer.Start();
+                    return;
+                }
+                if (mode == "douyin")
+                {
+                    var dyTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    dyTimer.Tick += delegate
+                    {
+                        dyTimer.Stop();
+                        try { LaunchDouyin(); } catch (Exception) { }
+                    };
+                    dyTimer.Start();
+                    return;
+                }
+                if (mode == "detached")
+                {
+                    var detTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    detTimer.Tick += delegate
+                    {
+                        detTimer.Stop();
+                        try
+                        {
+                            string image = DemoImagePath();
+                            if (!string.IsNullOrEmpty(image))
+                                new DetachedImageViewerWindow(image, null, null).Show();
+                        }
+                        catch (Exception) { }
+                    };
+                    detTimer.Start();
+                    return;
+                }
+                if (mode == "warn")
+                {
+                    var warnTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    warnTimer.Tick += delegate
+                    {
+                        warnTimer.Stop();
+                        NeonNotify.Warn("录屏失败", "这次没有生成有效的视频文件。请检查录制区域和编码器后重试。");
+                    };
+                    warnTimer.Start();
+                    return;
+                }
+                if (mode == "info")
+                {
+                    var infoTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    infoTimer.Tick += delegate
+                    {
+                        infoTimer.Stop();
+                        NeonNotify.Info("录屏完成", "视频已挂到胶囊里。");
+                    };
+                    infoTimer.Start();
+                    return;
+                }
+                if (mode == "orbai")
+                {
+                    var orbTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    orbTimer.Tick += delegate
+                    {
+                        orbTimer.Stop();
+                        SetExpanded(true);
+                        OpenOrbHub();
+                        var launchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                        launchTimer.Tick += delegate
+                        {
+                            launchTimer.Stop();
+                            RunTool(FindTool("ai"));
+                        };
+                        launchTimer.Start();
+                    };
+                    orbTimer.Start();
+                    return;
+                }
+                if (mode == "stack")
+                {
+                    var stackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    stackTimer.Tick += delegate
+                    {
+                        stackTimer.Stop();
+                        NeonNotify.Info("提示 1", "最早的一条提示，应该被压在后面。");
+                        var t1 = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(420) };
+                        t1.Tick += delegate
+                        {
+                            t1.Stop();
+                            NeonNotify.Info("提示 2", "中间的一条提示，露出一点边。");
+                            var t2 = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(420) };
+                            t2.Tick += delegate
+                            {
+                                t2.Stop();
+                                NeonNotify.Info("提示 3", "最新的一条提示，应该在最前面。");
+                            };
+                            t2.Start();
+                        };
+                        t1.Start();
+                    };
+                    stackTimer.Start();
+                    return;
+                }
+                if (mode == "rec")
+                {
+                    var recTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    recTimer.Tick += delegate
+                    {
+                        recTimer.Stop();
+                        NeonNotify.RecordingStart();
+                    };
+                    recTimer.Start();
+                    return;
+                }
+                if (mode == "dissolve")
+                {
+                    var disTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    disTimer.Tick += delegate
+                    {
+                        disTimer.Stop();
+                        try
+                        {
+                            string image = DemoImagePath();
+                            if (string.IsNullOrEmpty(image)) return;
+                            var viewer = new DetachedImageViewerWindow(image, null, null);
+                            viewer.Show();
+                            var closeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2200) };
+                            closeTimer.Tick += delegate
+                            {
+                                closeTimer.Stop();
+                                try { viewer.DemoClose(); } catch (Exception) { }
+                            };
+                            closeTimer.Start();
+                        }
+                        catch (Exception) { }
+                    };
+                    disTimer.Start();
+                    return;
+                }
+                if (mode == "mini")
+                {
+                    var miniTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    miniTimer.Tick += delegate
+                    {
+                        miniTimer.Stop();
+                        try
+                        {
+                            musicPlaying = true;
+                            UpdateCapsuleMusicMode();
+                        }
+                        catch (Exception) { }
+                    };
+                    miniTimer.Start();
+                    return;
+                }
+                if (mode == "minitoggle")
+                {
+                    var onTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    onTimer.Tick += delegate
+                    {
+                        onTimer.Stop();
+                        try { musicPlaying = true; UpdateCapsuleMusicMode(); } catch (Exception) { }
+                    };
+                    onTimer.Start();
+                    var offTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(3300) };
+                    offTimer.Tick += delegate
+                    {
+                        offTimer.Stop();
+                        try { musicPlaying = false; UpdateCapsuleMusicMode(); } catch (Exception) { }
+                    };
+                    offTimer.Start();
+                    return;
+                }
+                if (mode == "orbs")
+                {
+                    var orbTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    orbTimer.Tick += delegate
+                    {
+                        orbTimer.Stop();
+                        try
+                        {
+                            SetExpanded(true);
+                            suppressDeactivate = true;
+                            ToggleOrbHub();
+                        }
+                        catch (Exception) { }
+                    };
+                    orbTimer.Start();
+                    return;
+                }
+                if (mode == "cardzoom")
+                {
+                    var zoomTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    zoomTimer.Tick += delegate
+                    {
+                        zoomTimer.Stop();
+                        try
+                        {
+                            string image = DemoImagePath();
+                            if (!string.IsNullOrEmpty(image))
+                                new CardZoomWindow(image, new Rect(560, 220, 172, 150), null, null).Show();
+                        }
+                        catch (Exception) { }
+                    };
+                    zoomTimer.Start();
+                    return;
+                }
+                if (mode == "menu")
+                {
+                    var menuTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+                    menuTimer.Tick += delegate { menuTimer.Stop(); try { ShowMoreMenu(null); } catch (Exception) { } };
+                    menuTimer.Start();
+                    return;
+                }
+                if (mode == "tray")
+                {
+                    var trayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+                    trayTimer.Tick += delegate { trayTimer.Stop(); try { ShowTrayMenu(); } catch (Exception) { } };
+                    trayTimer.Start();
+                    return;
+                }
+                if (mode == "keys" || mode == "notice" || mode == "editor" || mode == "viewer")
+                {
+                    var dialogTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                    dialogTimer.Tick += delegate
+                    {
+                        dialogTimer.Stop();
+                        try
+                        {
+                            if (mode == "keys") OpenHotkeySettings();
+                            else if (mode == "notice") new StartupNoticeWindow().Show();
+                            else
+                            {
+                                string image = DemoImagePath();
+                                if (string.IsNullOrEmpty(image)) return;
+                                if (mode == "viewer") ShowFullImage(image);
+                                else new ImageEditorWindow(image, delegate(string edited) { AddImage(edited); }).Show();
+                            }
+                        }
+                        catch (Exception exception) { DragNative.Log("skin demo " + mode + " failed: " + exception.Message); }
+                    };
+                    dialogTimer.Start();
+                    return;
+                }
+                if (mode == "ai" || mode == "music" || mode == "region")
+                {
+                    var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(650) };
+                    timer.Tick += delegate
+                    {
+                        timer.Stop();
+                        try
+                        {
+                            if (mode == "ai") OpenAiPanel();
+                            else if (mode == "music") OpenMusicPanel();
+                            else CaptureRegionAsync();
+                        }
+                        catch (Exception exception) { DragNative.Log("skin demo " + mode + " failed: " + exception.Message); }
+                    };
+                    timer.Start();
+                    return;
+                }
+                SetExpanded(true);
+                suppressDeactivate = true;
+                if (mode == "translate")
+                {
+                    SetTabTranslate();
+                    return;
+                }
+                if (mode == "text")
+                {
+                    SetTab(true);
+                    return;
+                }
+                if (mode == "restore")
+                {
+                    var back = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2600) };
+                    back.Tick += delegate { back.Stop(); NeonSkin.SetSkin(NeonSkin.DefaultId); };
+                    back.Start();
+                    return;
+                }
+                if (mode == "picker" || mode == "panel") { }
+                var pick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                pick.Tick += delegate
+                {
+                    pick.Stop();
+                    if (mode == "picker") ShowSkinPicker();
+                };
+                pick.Start();
+            }
+            catch (Exception exception)
+            {
+                DragNative.Log("skin demo failed: " + exception.Message);
+            }
+        }
+
+        /// <summary>--skin-demo 用的示例图：优先项目根目录的 sample.png，其次当前图片列表。</summary>
+        string DemoImagePath()
+        {
+            try
+            {
+                string sample = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "sample.png"));
+                if (File.Exists(sample)) return sample;
+                List<string> images = CurrentImagePaths();
+                if (images != null && images.Count > 0) return images[0];
+            }
+            catch (Exception) { }
+            return "";
         }
 
         void OpenImageFolder()
@@ -2675,6 +3120,7 @@ namespace IslandShot
                 PrepareShot();
                 await Task.Delay(120);
                 AddScreenshot(ScreenCapture.VirtualScreen());
+                CaptureFlashWindow.Flash();
                 preview = true;
             }
             catch (Exception) { }

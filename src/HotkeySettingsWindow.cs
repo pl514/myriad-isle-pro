@@ -107,6 +107,51 @@ namespace IslandShot
                 panel.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Color.FromRgb(236, 240, 246)) });
             }
 
+            // 一键放歌的歌单选择（和第 2 条自定义项）
+            var playlistRow = new Grid { Height = 46 };
+            playlistRow.ColumnDefinitions.Add(new ColumnDefinition());
+            playlistRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(198) });
+            playlistRow.Children.Add(new TextBlock
+            {
+                Text = "一键放歌歌单",
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Color.FromRgb(40, 51, 67)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            var playlistButton = new Button
+            {
+                Content = QuickPlayStore.DisplayName(),
+                Height = 30,
+                FontSize = 12,
+                Background = new SolidColorBrush(Color.FromRgb(244, 247, 251)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(220, 227, 237)),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand
+            };
+            playlistButton.Template = ButtonTemplate();
+            Grid.SetColumn(playlistButton, 1);
+            playlistButton.Click += delegate
+            {
+                string platformId = MusicSession.Load();
+                MusicPlatform platform = MusicPlatforms.Find(platformId);
+                if (platform == null)
+                {
+                    status.Text = "先在音乐面板里选好平台并登录，再回来选歌单。";
+                    return;
+                }
+                var picker = new QuickPlaylistWindow(platform, delegate(MusicPlaylistInfo info)
+                {
+                    if (info == null) QuickPlayStore.Save("", "");
+                    else QuickPlayStore.Save(info.Id, info.Name);
+                    playlistButton.Content = QuickPlayStore.DisplayName();
+                    status.Text = "";
+                });
+                picker.ShowDialog();
+            };
+            playlistRow.Children.Add(playlistButton);
+            panel.Children.Add(playlistRow);
+            panel.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(Color.FromRgb(236, 240, 246)) });
+
             status = new TextBlock
             {
                 FontSize = 11,

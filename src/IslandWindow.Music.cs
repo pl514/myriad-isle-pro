@@ -1844,7 +1844,6 @@ namespace IslandShot
                             HideMusicLoginPicker();
                             ApplyMusicLoginVisual();
                             StartMusicImport(true);
-                            ShowToolMessage("音乐", "已登录 " + platform.Name + "。正在读取歌单。");
                         }));
                     });
                 }));
@@ -1933,7 +1932,6 @@ namespace IslandShot
                             ApplyMusicLoginVisual();
                             // 先补上网页 profile 里的 dfid/kg_mid，再拉歌单
                             KugouApi.FillDevice(platform, delegate { StartMusicImport(); });
-                            ShowToolMessage("音乐", "已登录 " + platform.Name + "。正在读取歌单。");
                         }
                         else if (status == 0)
                         {
@@ -1971,7 +1969,6 @@ namespace IslandShot
             HideMusicLoginPicker();
             ApplyMusicLoginVisual();
             StartMusicImport();
-            ShowToolMessage("音乐", "已登录 " + platform.Name + "（App 扫码）。正在读取歌单。");
         }
 
         void StopMusicQr()
@@ -2598,8 +2595,10 @@ namespace IslandShot
             capsuleMiniButtons.Add(prev);
             capsuleMiniButtons.Add(play);
             capsuleMiniButtons.Add(next);
+            prev.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { e.Handled = true; };
             prev.MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e) { e.Handled = true; NextMusicSong(-1); };
             play.MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e) { e.Handled = true; ToggleMusicPlayback(); };
+            next.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { e.Handled = true; };
             next.MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e) { e.Handled = true; NextMusicSong(1); };
             row.Children.Add(prev);
             row.Children.Add(play);
@@ -3095,6 +3094,115 @@ namespace IslandShot
             return string.IsNullOrEmpty(song.Mid) ? song.Title : song.Mid;
         }
 
+        // ================================================================ 一键放歌
+
+        // 随机放一首「一键放歌歌单」里的歌；放完自动接下一首（走随机池），除非手动暂停
+        void QuickRandomPlay()
+        {
+            MusicPlatform platform = MusicPlatforms.Find(musicPlatformId);
+            if (platform == null)
+            {
+                ShowToolMessage("一键放歌", "先在音乐面板选好平台并登录");
+                return;
+            }
+            if (musicSongs.Count == 0)
+            {
+                ShowToolMessage("一键放歌", "正在读取歌单…");
+                LoadQuickPlaySongs(platform, delegate
+                {
+                    if (musicSongs.Count == 0)
+                    {
+                        ShowToolMessage("一键放歌", "歌单里没有能播的歌");
+                        return;
+                    }
+                    QuickRandomPlay();
+                });
+                return;
+            }
+
+            musicPlayMode = MusicPlayMode.Shuffle;
+            List<MusicSongInfo> pool = new List<MusicSongInfo>();
+            for (int i = 0; i < musicSongs.Count; i++)
+            {
+                MusicSongInfo song = musicSongs[i];
+                if (!song.Playable) continue;
+                if (song == musicCurrentSong) continue;
+                if (musicShufflePlayed.Contains(ShuffleKey(song))) continue;
+                pool.Add(song);
+            }
+            if (pool.Count == 0)
+            {
+                musicShufflePlayed.Clear();
+                for (int i = 0; i < musicSongs.Count; i++)
+                {
+                    MusicSongInfo song = musicSongs[i];
+                    if (!song.Playable) continue;
+                    if (song == musicCurrentSong && musicSongs.Count > 1) continue;
+                    pool.Add(song);
+                }
+            }
+            if (pool.Count == 0)
+            {
+                ShowToolMessage("一键放歌", "歌单里没有能播的歌");
+                return;
+            }
+
+            MusicSongInfo pick = pool[musicRandom.Next(pool.Count)];
+            musicShufflePlayed.Add(ShuffleKey(pick));
+            PlayMusicSong(pick);
+            ShowToolMessage("一键放歌", pick.Title + (string.IsNullOrEmpty(pick.Artists) ? "" : " · " + pick.Artists));
+        }
+
+        // 读「一键放歌」指定歌单的歌曲（没指定就用第一个歌单）
+        void LoadQuickPlaySongs(MusicPlatform platform, Action done)
+        {
+            if (platform == null)
+            {
+                if (done != null) done();
+                return;
+            }
+            MusicImport.LoadPlaylists(platform, delegate(List<MusicPlaylistInfo> lists)
+            {
+                if (lists == null || lists.Count == 0)
+                {
+                    MusicDebug("quick play: no playlist");
+                    if (done != null) done();
+                    return;
+                }
+                MusicPlaylistInfo target = null;
+                if (!string.IsNullOrEmpty(QuickPlayStore.PlaylistId))
+                {
+                    for (int i = 0; i < lists.Count; i++)
+                    {
+                        if (string.Equals(lists[i].Id, QuickPlayStore.PlaylistId, StringComparison.Ordinal))
+                        {
+                            target = lists[i];
+                            break;
+                        }
+                    }
+                }
+                if (target == null) target = lists[0];
+                musicSelectedPlaylistId = target.Id;
+                MusicDebug("quick play: playlist " + target.Name);
+                MusicImport.LoadSongs(platform, target, delegate(List<MusicSongInfo> songs)
+                {
+                    musicSongs = songs;
+                    MusicCache.SaveSongs(platform.Id, target.Id, songs);
+                    musicShufflePlayed.Clear();
+                    MusicDebug("quick play: songs " + songs.Count);
+                    if (done != null) done();
+                }, delegate(string message)
+                {
+                    MusicDebug("quick play songs failed: " + message);
+                    if (done != null) done();
+                });
+            }, delegate(string message)
+            {
+                MusicDebug("quick play lists failed: " + message);
+                if (done != null) done();
+            });
+        }
+
         void NextMusicSong(int step)
         {
             NextMusicSong(step, false);
@@ -3102,7 +3210,22 @@ namespace IslandShot
 
         void NextMusicSong(int step, bool auto)
         {
-            if (musicSongs.Count == 0) return;
+            if (musicSongs.Count == 0)
+            {
+                // 列表还没读（比如直接从胶囊点上一首/下一首）：先把歌单读出来再切，
+                // 否则按钮点了没反应。
+                MusicPlatform missing = MusicPlatforms.Find(musicPlatformId);
+                if (missing == null)
+                {
+                    if (auto) ShowToolMessage("音乐", "还没有选平台 / 歌单");
+                    return;
+                }
+                LoadQuickPlaySongs(missing, delegate
+                {
+                    if (musicSongs.Count > 0) NextMusicSong(step, auto);
+                });
+                return;
+            }
 
             // 随机：洗牌袋。一轮内每首只放一次，全部放完才开新一轮
             if (musicPlayMode == MusicPlayMode.Shuffle && step > 0)
@@ -3316,7 +3439,8 @@ namespace IslandShot
             if (!musicRowsIntroduced)
             {
                 musicRowsIntroduced = true;
-                AnimateMusicRows();
+                // 原皮保留首次行入场；赛博朋克直接显示，避免首开比后续多一段延迟。
+                if (!NeonSkin.Active) AnimateMusicRows();
             }
         }
 
@@ -4437,7 +4561,6 @@ namespace IslandShot
                     MusicSession.Save(done.Id);
                     ApplyMusicLoginVisual();
                     StartMusicImport();
-                    ShowToolMessage("音乐", "已登录 " + done.Name + "。正在读取歌单。");
                 }), System.Windows.Threading.DispatcherPriority.Background);
             };
             window.Dismissed += delegate
@@ -4479,11 +4602,20 @@ namespace IslandShot
         void OpenMusicPanel()
         {
             if (musicPanel == null) return;
+            bool directOrb = orbDirectSwitch;
+            orbDirectSwitch = false;
             if (musicVisible && expanded && musicPanel.Visibility == Visibility.Visible) return;
 
             bool fromImagePanel = expanded;
             // 必须在把图片面板隐藏之前量它的矩形，否则量到的是 0，形变会直接被跳过
             Rect imageRect = (fromImagePanel && panel != null) ? BoundsInWindow(panel) : Rect.Empty;
+            if (fromImagePanel && (imageRect.IsEmpty || imageRect.Width < 1) && panel != null)
+            {
+                double pw = !double.IsNaN(panel.Width) && panel.Width > 0 ? panel.Width : panel.ActualWidth;
+                double ph = !double.IsNaN(panel.Height) && panel.Height > 0 ? panel.Height : panel.ActualHeight;
+                if (pw > 1 && ph > 1)
+                    imageRect = new Rect((ActualWidth - pw) / 2, panel.Margin.Top, pw, ph);
+            }
             musicVisible = true;
             musicLastSurface = true;
             aiLastSurface = false;
@@ -4502,7 +4634,8 @@ namespace IslandShot
             if (!musicRowsIntroduced)
             {
                 musicRowsIntroduced = true;
-                AnimateMusicRows();
+                // 原皮保留首次行入场；赛博朋克直接显示，避免首开比后续多一段延迟。
+                if (!NeonSkin.Active) AnimateMusicRows();
             }
             if (MusicPlatforms.Find(musicPlatformId) != null) StartMusicImport();
 
@@ -4512,14 +4645,28 @@ namespace IslandShot
                 musicPanel.Visibility = Visibility.Visible;
                 musicPanel.IsHitTestVisible = true;
                 HardSetOpacity(musicPanel, 1);
-                MorphBetween(musicPanel, imageRect, 320);
-                UIElement body = musicPanel.Child as UIElement;
-                if (body != null) Motion.AnimateDouble(body, UIElement.OpacityProperty, 0, 1, 240, Motion.Enter, 60, null);
+                if (directOrb && NeonSkin.Active)
+                {
+                    // 赛博朋克的小球切换：不拉长，先闪一下再露出面板。
+                    HardResetScale(Motion.ScaleOf(musicPanel, new Point(0, 0)));
+                    HardResetMove(Motion.MoveOf(musicPanel));
+                    PlayOrbSwitchFlash(musicPanel);
+                }
+                else
+                {
+                    MorphBetween(musicPanel, imageRect, 320);
+                    if (!NeonSkin.Active)
+                    {
+                        UIElement body = musicPanel.Child as UIElement;
+                        if (body != null) Motion.AnimateDouble(body, UIElement.OpacityProperty, 0, 1, 240, Motion.Enter, 60, null);
+                    }
+                }
             }
             else
             {
                 SetExpanded(true);
             }
+            NeonChrome.GlitchSurface(musicPanel);
         }
 
         // 返回图片面板：音乐面板的形状直接形变成图片面板的形状（不经过胶囊）
