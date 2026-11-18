@@ -46,6 +46,7 @@ namespace IslandShot
         [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
         [DllImport("user32.dll")] static extern bool AddClipboardFormatListener(IntPtr hwnd);
         [DllImport("user32.dll")] static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
         readonly Border capsule;
@@ -74,6 +75,8 @@ namespace IslandShot
         bool capturing;
         bool suppressDeactivate;
         bool dragOut;
+        // 卡片右键拖拽的取消回调（按 Esc 或鼠标键丢了都能收掉跟随的预览图）
+        Action imageRightDragCanceller;
         bool exporting;
         bool dropArmed;
         bool lowPrivilegeWarned;
@@ -295,6 +298,12 @@ namespace IslandShot
             {
                 MusicDebug("esc key=" + e.Key + " expanded=" + expanded + " music=" + musicVisible + " ai=" + aiVisible);
                 if (e.Key != Key.Escape) return;
+                if (imageRightDragCanceller != null)
+                {
+                    imageRightDragCanceller();
+                    e.Handled = true;
+                    return;
+                }
                 if (recorder != null && recorder.Recording)
                 {
                     StopRecording();
@@ -2026,11 +2035,42 @@ namespace IslandShot
             bool rightMoved = false;
             bool rightSuppressMenu = false;
             DragPreviewWindow rightPreview = null;
+            // 取消右键拖拽：收掉跟随的预览窗、释放鼠标捕获（Esc 或鼠标键丢了都会走这里）
+            Action rightCancel = delegate
+            {
+                rightPressed = false;
+                rightMoved = false;
+                Mouse.OverrideCursor = null;
+                try { if (card.IsMouseCaptured) card.ReleaseMouseCapture(); } catch (Exception) { }
+                if (rightPreview != null)
+                {
+                    try { rightPreview.Close(); } catch (Exception) { }
+                    rightPreview = null;
+                }
+                imageRightDragCanceller = null;
+            };
+            // 鼠标右键在拖拽过程中被松开（包括按 Esc 导致捕获丢失）时兜底收掉预览图
+            var rightWatch = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+            rightWatch.Tick += delegate
+            {
+                if (!rightPressed)
+                {
+                    rightWatch.Stop();
+                    return;
+                }
+                if ((GetAsyncKeyState(0x02) & 0x8000) == 0)
+                {
+                    rightWatch.Stop();
+                    rightCancel();
+                }
+            };
             card.PreviewMouseRightButtonDown += delegate(object sender, MouseButtonEventArgs e)
             {
                 rightStart = e.GetPosition(this);
                 rightPressed = true;
                 rightMoved = false;
+                imageRightDragCanceller = rightCancel;
+                rightWatch.Start();
                 try { card.CaptureMouse(); } catch (Exception) { }
             };
             card.PreviewMouseMove += delegate(object sender, MouseEventArgs e)
@@ -2057,6 +2097,8 @@ namespace IslandShot
             card.PreviewMouseRightButtonUp += delegate(object sender, MouseButtonEventArgs e)
             {
                 if (!rightPressed) return;
+                rightWatch.Stop();
+                imageRightDragCanceller = null;
                 rightPressed = false;
                 Mouse.OverrideCursor = null;
                 try { if (card.IsMouseCaptured) card.ReleaseMouseCapture(); } catch (Exception) { }
